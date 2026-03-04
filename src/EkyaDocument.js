@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { GCounter } from './core/GCounter.js';
+import { PNCounter } from './core/PNCounter.js';
 import { LWWRegister } from './core/LWWRegister.js';
 import { LWWMap } from './core/LWWMap.js';
 import { RGA } from './core/RGA.js';
@@ -33,7 +34,7 @@ export class EkyaDocument extends EventEmitter {
     /**
      * @param {object} params
      * @param {string} params.id - Unique document identifier
-     * @param {'text'|'counter'|'map'|'register'} params.type - CRDT type
+     * @param {'text'|'counter'|'pncounter'|'map'|'register'} params.type - CRDT type
      * @param {string} params.nodeId - Local node/user identifier
      */
     constructor({ id, type, nodeId }) {
@@ -57,6 +58,8 @@ export class EkyaDocument extends EventEmitter {
         switch (type) {
             case 'counter':
                 return new GCounter(id, nodeId);
+            case 'pncounter':
+                return new PNCounter(id, nodeId);
             case 'register':
                 return new LWWRegister(id, nodeId);
             case 'map':
@@ -71,12 +74,12 @@ export class EkyaDocument extends EventEmitter {
     // ─── Counter API ───────────────────────────────────────────────
 
     /**
-     * Increment the counter (type: 'counter' only).
+     * Increment the counter (type: 'counter' or 'pncounter').
      * @param {number} [amount=1]
      * @returns {import('./core/Operation.js').Operation}
      */
     increment(amount = 1) {
-        this._assertType('counter');
+        this._assertType('counter', 'pncounter');
         const op = this._crdt.increment(amount);
         this.emit('operation', op);
         this.emit('update', { type: 'increment', amount });
@@ -84,11 +87,24 @@ export class EkyaDocument extends EventEmitter {
     }
 
     /**
-     * Get counter value (type: 'counter' only).
+     * Decrement the counter (type: 'pncounter' only).
+     * @param {number} [amount=1]
+     * @returns {import('./core/Operation.js').Operation}
+     */
+    decrement(amount = 1) {
+        this._assertType('pncounter');
+        const op = this._crdt.decrement(amount);
+        this.emit('operation', op);
+        this.emit('update', { type: 'decrement', amount });
+        return op;
+    }
+
+    /**
+     * Get counter value (type: 'counter' or 'pncounter').
      * @returns {number}
      */
     value() {
-        this._assertType('counter');
+        this._assertType('counter', 'pncounter');
         return this._crdt.value();
     }
 
@@ -264,6 +280,9 @@ export class EkyaDocument extends EventEmitter {
             case 'counter':
                 this._crdt = GCounter.fromJSON(state);
                 break;
+            case 'pncounter':
+                this._crdt = PNCounter.fromJSON(state);
+                break;
             case 'register':
                 this._crdt = LWWRegister.fromJSON(state);
                 break;
@@ -287,11 +306,31 @@ export class EkyaDocument extends EventEmitter {
 
     /**
      * Assert the document is of a specific type.
-     * @param {string} expectedType
+     * @param {...string} expectedTypes
      */
-    _assertType(expectedType) {
-        if (this.type !== expectedType) {
-            throw new Error(`Operation not supported on '${this.type}' document (expected '${expectedType}')`);
+    _assertType(...expectedTypes) {
+        if (!expectedTypes.includes(this.type)) {
+            throw new Error(`Operation not supported on '${this.type}' document (expected '${expectedTypes.join("' or '")}'`);
         }
+    }
+
+    /**
+     * Get CRDT stats (GC info, op count, etc.).
+     * @returns {object}
+     */
+    stats() {
+        return this._crdt.stats ? this._crdt.stats() : {};
+    }
+
+    /**
+     * Run garbage collection on the underlying CRDT.
+     * @param {...*} args - GC arguments (varies by CRDT type)
+     * @returns {object}
+     */
+    gc(...args) {
+        if (typeof this._crdt.gc !== 'function') {
+            return { removed: 0, remaining: 0 };
+        }
+        return this._crdt.gc(...args);
     }
 }
