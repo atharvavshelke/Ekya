@@ -1,0 +1,52 @@
+{
+  "name": "ekya",
+  "version": "0.1.0",
+  "description": "E2EE Real-Time Collaborative CRDT Framework — encrypted collaborative state where the server never sees plaintext",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./server": "./server/RelayServer.js"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src/ server/ __tests__/",
+    "format": "prettier --write .",
+    "demo": "node demo/server.js",
+    "start": "node demo/server.js",
+    "relay": "node server/RelayServer.js"
+  },
+  "keywords": [
+    "crdt",
+    "e2ee",
+    "encryption",
+    "collaborative",
+    "real-time",
+    "conflict-free",
+    "distributed",
+    "peer-to-peer",
+    "webrtc",
+    "websocket"
+  ],
+  "author": "Atharva Shelke",
+  "license": "MIT",
+  "dependencies": {
+    "msgpackr": "^1.11.0",
+    "uuid": "^11.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "prettier": "^3.4.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/atharvavshelke/Ekya.git"
+  }
+}
