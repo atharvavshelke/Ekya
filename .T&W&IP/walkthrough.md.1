@@ -1,0 +1,84 @@
+# Ekya — Build Walkthrough
+
+## What Was Built
+
+Ekya is an E2EE Real-Time Collaborative CRDT Framework — a developer SDK where the central server **never sees plaintext data**. The complete framework was built from scratch in a single session.
+
+## Architecture
+
+```mermaid
+graph TD
+    A["EkyaDocument<br/>(Developer API)"] --> B["CRDT Engine<br/>GCounter | LWWRegister | LWWMap | RGA"]
+    B --> C["Serializer<br/>(MessagePack)"]
+    C --> D["EncryptedEnvelope<br/>(AES-256-GCM)"]
+    D --> E["SyncProtocol<br/>(Dedup + Epoch)"]
+    E --> F["WebSocketTransport<br/>(Reconnection)"]
+    F --> G["Trustless Relay Server<br/>(Blind Forwarding)"]
+    
+    H["KeyManager<br/>(ECDH P-256 + HKDF)"] --> D
+    I["KeyRotation<br/>(Epoch-based)"] --> D
+    J["AwarenessProtocol<br/>(Cursors/Presence)"] --> F
+    K["EkyaProvider<br/>(Orchestrator)"] --> A
+    K --> E
+    K --> J
+```
+
+## Files Created (25 total)
+
+| Layer | Files | Purpose |
+|---|---|---|
+| **CRDT Engine** | [VectorClock.js](file:///home/privateproperty/Github/Ekya/src/core/VectorClock.js), [Operation.js](file:///home/privateproperty/Github/Ekya/src/core/Operation.js), [GCounter.js](file:///home/privateproperty/Github/Ekya/src/core/GCounter.js), [LWWRegister.js](file:///home/privateproperty/Github/Ekya/src/core/LWWRegister.js), [LWWMap.js](file:///home/privateproperty/Github/Ekya/src/core/LWWMap.js), [RGA.js](file:///home/privateproperty/Github/Ekya/src/core/RGA.js), [Serializer.js](file:///home/privateproperty/Github/Ekya/src/core/Serializer.js) | 4 CRDTs + ordering + serialization |
+| **Crypto** | [KeyManager.js](file:///home/privateproperty/Github/Ekya/src/crypto/KeyManager.js), [EncryptedEnvelope.js](file:///home/privateproperty/Github/Ekya/src/crypto/EncryptedEnvelope.js), [KeyRotation.js](file:///home/privateproperty/Github/Ekya/src/crypto/KeyRotation.js) | ECDH + AES-256-GCM + epoch rotation |
+| **Network** | [WebSocketTransport.js](file:///home/privateproperty/Github/Ekya/src/net/WebSocketTransport.js), [SyncProtocol.js](file:///home/privateproperty/Github/Ekya/src/net/SyncProtocol.js), [AwarenessProtocol.js](file:///home/privateproperty/Github/Ekya/src/net/AwarenessProtocol.js) | Transport + sync + presence |
+| **Server** | [RelayServer.js](file:///home/privateproperty/Github/Ekya/server/RelayServer.js), [RoomManager.js](file:///home/privateproperty/Github/Ekya/server/RoomManager.js), [SnapshotStore.js](file:///home/privateproperty/Github/Ekya/server/SnapshotStore.js) | Trustless relay |
+| **SDK** | [EkyaDocument.js](file:///home/privateproperty/Github/Ekya/src/EkyaDocument.js), [EkyaProvider.js](file:///home/privateproperty/Github/Ekya/src/EkyaProvider.js), [index.js](file:///home/privateproperty/Github/Ekya/src/index.js) | Developer-facing API |
+| **Tests** | 10 test files in `__tests__/` | 83 tests total |
+| **Docs** | [README.md](file:///home/privateproperty/Github/Ekya/README.md), [LICENSE](file:///home/privateproperty/Github/Ekya/LICENSE), [ci.yml](file:///home/privateproperty/Github/Ekya/.github/workflows/ci.yml) | Documentation + CI |
+
+## Critical Bug Fix: RGA Convergence
+
+> [!IMPORTANT]
+> Found and fixed a convergence bug during testing — exactly the kind of "brutal to debug" issue warned about in the review.
+
+**Problem**: [elemIdEquals(null, null)](file:///home/privateproperty/Github/Ekya/src/core/RGA.js#65-76) returned `false` because the original implementation used `a && b && ...` which short-circuits on `null`. When two peers both insert at position 0 (afterId=null), the sibling ordering scan was never executed.
+
+**Impact**: Concurrent inserts at the start of a document would produce different orderings on different peers — a fundamental CRDT correctness violation.
+
+**Fix**: Explicit null equality check before the object property comparison:
+
+```diff
+ static elemIdEquals(a, b) {
+-    return a && b && a.nodeId === b.nodeId && a.seq === b.seq;
++    if (a === null && b === null) return true;
++    if (a === null || b === null) return false;
++    return a.nodeId === b.nodeId && a.seq === b.seq;
+ }
+```
+
+## Test Results
+
+```
+ ✓ __tests__/core/VectorClock.test.js      (9 tests)
+ ✓ __tests__/core/Operation.test.js         (4 tests)
+ ✓ __tests__/core/GCounter.test.js          (11 tests)
+ ✓ __tests__/core/LWWRegister.test.js       (7 tests)
+ ✓ __tests__/core/LWWMap.test.js            (9 tests)
+ ✓ __tests__/core/RGA.test.js               (14 tests)
+ ✓ __tests__/core/Serializer.test.js        (6 tests)
+ ✓ __tests__/crypto/KeyManager.test.js      (7 tests)
+ ✓ __tests__/crypto/EncryptedEnvelope.test.js (6 tests)
+ ✓ __tests__/crypto/KeyRotation.test.js     (6 tests)
+ ✓ __tests__/integration/e2e-sync.test.js   (4 tests)
+
+ Test Files  11 passed (11)
+      Tests  83 passed (83)
+```
+
+### Key Verified Properties
+
+- **CRDT convergence**: GCounter commutativity/idempotency, RGA deterministic ordering across 3 concurrent peers
+- **Crypto integrity**: AES-256-GCM tamper detection, wrong-key rejection, semantic security (random IV)
+- **ECDH key agreement**: Both peers derive identical shared secret from each other's public keys
+- **E2E relay**: Two simulated clients exchange encrypted ops through the relay server and converge
+- **Server blindness**: Proven that the server (with a different key) cannot decrypt any payloads
+- **Snapshot round-trip**: Upload encrypted snapshot → new client retrieves → decrypts → restores state

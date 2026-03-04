@@ -1,0 +1,322 @@
+# Ekya — E2EE Real-Time Collaborative CRDT Framework
+
+An SDK/framework for building real-time collaborative applications (text editors, whiteboards, shared state) where the **central server never sees plaintext data**. CRDTs handle conflict-free merging; E2EE ensures the relay server is completely trustless.
+
+## Background & Design Philosophy
+
+Building on:
+- **SecureConnect** — E2EE messaging with RSA-OAEP + AES-GCM, Web Crypto API, Socket.IO, WebRTC
+- **Kalpa** — meta-protocol router with UME, backpressure, hot-swap (potential future integration as the signaling backbone)
+
+**Core insight**: CRDTs produce deterministic merge results regardless of operation order. This means we can encrypt each operation *independently* — the server relays opaque ciphertext blobs, and clients decrypt + merge locally.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   Client (Browser)                   │
+│                                                     │
+│  ┌─────────┐   ┌──────────┐   ┌──────────────────┐  │
+│  │  CRDT   │──▶│  Crypto  │──▶│   Net (WS/RTC)   │  │
+│  │ Engine  │◀──│  Layer   │◀──│   Transport      │  │
+│  └─────────┘   └──────────┘   └────────┬─────────┘  │
+│       │                                │             │
+│  ┌────▼────┐                           │             │
+│  │EkyaDoc  │  (Developer API)          │             │
+│  └─────────┘                           │             │
+└────────────────────────────────────────┼─────────────┘
+                                         │ Encrypted
+                                         │ Opaque Blobs
+                                         ▼
+                              ┌──────────────────────┐
+                              │  Trustless Relay      │
+                              │  Server               │
+                              │                       │
+                              │  • Room pub/sub       │
+                              │  • Encrypted storage  │
+                              │  • WebRTC signaling   │
+                              │  • NEVER decrypts     │
+                              └──────────────────────┘
+```
+
+---
+
+## Proposed Changes
+
+### 1. Project Scaffolding
+
+#### [NEW] [package.json](file:///home/privateproperty/Github/Ekya/package.json)
+Node.js project root. Dependencies: `ws`, `msgpackr` (MessagePack for binary serialization), `uuid`. Dev dependencies: `vitest`, `eslint`, `prettier`.
+
+#### [NEW] [vitest.config.js](file:///home/privateproperty/Github/Ekya/vitest.config.js)
+Vitest configuration for running all `__tests__/` directories.
+
+#### [NEW] [.eslintrc.json](file:///home/privateproperty/Github/Ekya/.eslintrc.json)
+ESLint configuration with Node.js environment.
+
+#### [NEW] [.prettierrc](file:///home/privateproperty/Github/Ekya/.prettierrc)
+Prettier config: single quotes, 2-space indent, trailing commas.
+
+#### [NEW] [.gitignore](file:///home/privateproperty/Github/Ekya/.gitignore)
+Ignore `node_modules/`, `dist/`, `.env`, coverage reports.
+
+Directory structure:
+```
+Ekya/
+├── src/
+│   ├── core/          # CRDT implementations
+│   ├── crypto/        # E2EE encryption layer
+│   ├── net/           # Transport adapters (WS, WebRTC)
+│   └── index.js       # Public SDK API
+├── server/            # Trustless relay server
+├── demo/              # Interactive browser demos
+├── __tests__/         # All tests
+└── package.json
+```
+
+---
+
+### 2. CRDT Engine (`src/core/`)
+
+Custom CRDT implementations — no external CRDT library dependency. This keeps the framework lightweight, auditable, and tightly integrated with the encryption layer.
+
+#### [NEW] [VectorClock.js](file:///home/privateproperty/Github/Ekya/src/core/VectorClock.js)
+Causal ordering primitive. Methods: `increment(nodeId)`, `merge(other)`, `compare(other)` → `BEFORE | AFTER | CONCURRENT | EQUAL`. Used by all CRDTs to determine operation ordering.
+
+#### [NEW] [GCounter.js](file:///home/privateproperty/Github/Ekya/src/core/GCounter.js)
+Grow-only counter. Each node has its own count; value = sum of all counts. Methods: `increment()`, `merge(other)`, `value()`. Serializable state: `{ counts: { [nodeId]: number } }`.
+
+#### [NEW] [LWWRegister.js](file:///home/privateproperty/Github/Ekya/src/core/LWWRegister.js)
+Last-Writer-Wins Register. Stores a single value with a Hybrid Logical Clock timestamp. On conflict, highest timestamp wins. Methods: `set(value)`, `get()`, `merge(other)`.
+
+#### [NEW] [LWWMap.js](file:///home/privateproperty/Github/Ekya/src/core/LWWMap.js)
+Map composed of LWW-Registers. Each key maps to an `LWWRegister`. Supports `set(key, value)`, `get(key)`, `delete(key)` (tombstone), `merge(other)`, `toJSON()`. Ideal for structured documents / key-value state.
+
+#### [NEW] [RGA.js](file:///home/privateproperty/Github/Ekya/src/core/RGA.js)
+Replicated Growable Array — the core data structure for collaborative text editing. Operations: `insert(index, char, nodeId)`, `delete(index)`. Each element has a unique ID `(nodeId, sequence)`. Merging respects causal + total ordering. Methods: `insert()`, `delete()`, `merge(ops)`, `toString()`, `toArray()`.
+
+#### [NEW] [Operation.js](file:///home/privateproperty/Github/Ekya/src/core/Operation.js)
+Defines the `Operation` class: `{ type, crdtId, nodeId, clock, data }`. All CRDT mutations produce operations. Operations are what get encrypted and transmitted.
+
+#### [NEW] [Serializer.js](file:///home/privateproperty/Github/Ekya/src/core/Serializer.js)
+Uses `msgpackr` to serialize/deserialize operations and CRDT state to compact binary. Methods: `encode(obj) → Buffer`, `decode(buffer) → obj`.
+
+---
+
+### 3. Encryption Layer (`src/crypto/`)
+
+Following SecureConnect's patterns but adapted for CRDT operations. Using Web Crypto API (via Node.js `crypto.subtle`) for cross-environment compatibility.
+
+#### [NEW] [KeyManager.js](file:///home/privateproperty/Github/Ekya/src/crypto/KeyManager.js)
+Manages identity key pairs and document keys.
+- `generateIdentityKeyPair()` — ECDH P-256 key pair (for key agreement)
+- `deriveSharedSecret(myPrivateKey, theirPublicKey)` — ECDH shared secret
+- `deriveDocumentKey(sharedSecret, documentId)` — HKDF-SHA256 to derive per-document AES-256-GCM key
+- `exportPublicKey(key)` / `importPublicKey(raw)` — for key exchange
+- `generateDocumentKey()` — random AES-256-GCM key for initial document creation
+
+#### [NEW] [EncryptedEnvelope.js](file:///home/privateproperty/Github/Ekya/src/crypto/EncryptedEnvelope.js)
+Wraps CRDT operations in encrypted envelopes.
+- `encryptOperation(operation, documentKey)` → `{ iv, ciphertext, epoch, documentId }`
+- `decryptOperation(envelope, documentKey)` → `Operation`
+- `encryptSnapshot(crdtState, documentKey)` → `{ iv, ciphertext, epoch, documentId }`
+- `decryptSnapshot(envelope, documentKey)` → CRDT state
+- Uses AES-256-GCM with random 12-byte IV per encryption
+
+#### [NEW] [KeyRotation.js](file:///home/privateproperty/Github/Ekya/src/crypto/KeyRotation.js)
+Epoch-based key rotation.
+- `rotateKey(currentEpoch)` — generates new document key, increments epoch
+- `getKeyForEpoch(epoch)` — retrieves historical key (kept in memory/storage for decrypting old messages)
+- Triggers snapshot creation on rotation so new members don't need old keys
+
+---
+
+### 4. Networking Layer (`src/net/`)
+
+#### [NEW] [WebSocketTransport.js](file:///home/privateproperty/Github/Ekya/src/net/WebSocketTransport.js)
+Client-side WebSocket transport. Connects to the relay server.
+- `connect(url)`, `disconnect()`, `send(envelope)`, `onMessage(callback)`
+- Handles reconnection with exponential backoff
+- Emits events: `connected`, `disconnected`, `message`, `error`
+
+#### [NEW] [WebRTCTransport.js](file:///home/privateproperty/Github/Ekya/src/net/WebRTCTransport.js)
+Peer-to-peer transport using WebRTC data channels.
+- `createPeer(signalingClient)`, `connect(peerId)`, `send(envelope)`, `onMessage(callback)`
+- Uses the relay server only for signaling (ICE candidates, SDP exchange)
+- Data channel configured for `reliable` ordered delivery
+
+#### [NEW] [SignalingClient.js](file:///home/privateproperty/Github/Ekya/src/net/SignalingClient.js)
+Handles WebRTC signaling through the relay server.
+- `sendOffer(peerId, sdp)`, `sendAnswer(peerId, sdp)`, `sendCandidate(peerId, candidate)`
+- `onOffer(callback)`, `onAnswer(callback)`, `onCandidate(callback)`
+
+#### [NEW] [SyncProtocol.js](file:///home/privateproperty/Github/Ekya/src/net/SyncProtocol.js)
+Manages synchronization of encrypted CRDT state.
+- `broadcastOperation(encryptedOp)` — sends to all connected peers/server
+- `requestSnapshot(documentId)` — asks server for latest encrypted snapshot
+- `handleIncoming(envelope)` — decrypts, applies to local CRDT, triggers events
+- Buffers operations during offline, flushes on reconnect
+
+#### [NEW] [AwarenessProtocol.js](file:///home/privateproperty/Github/Ekya/src/net/AwarenessProtocol.js)
+Presence and cursor awareness (NOT encrypted — intentionally public metadata).
+- `setLocalState({ cursor, selection, user })` — broadcasts awareness info
+- `onRemoteStateChange(callback)` — receives peer awareness updates
+- Periodic heartbeat to detect disconnected peers (30s timeout)
+
+---
+
+### 5. Trustless Relay Server (`server/`)
+
+The server is intentionally "dumb" — it **never sees plaintext**.
+
+#### [NEW] [RelayServer.js](file:///home/privateproperty/Github/Ekya/server/RelayServer.js)
+Main server entry point built with `ws` (WebSocket library).
+- Room management: `createRoom(roomId)`, `joinRoom(roomId, clientId)`, `leaveRoom(roomId, clientId)`
+- Message forwarding: receives encrypted envelopes, broadcasts to room members
+- WebRTC signaling relay: forwards SDP offers/answers/ICE candidates between peers
+- Encrypted snapshot storage: stores latest encrypted snapshot per room (in-memory + optional file persistence)
+- No decryption keys, no knowledge of plaintext — pure relay
+
+#### [NEW] [RoomManager.js](file:///home/privateproperty/Github/Ekya/server/RoomManager.js)
+Manages room state: connected clients, room metadata (creation time, member count).
+
+#### [NEW] [SnapshotStore.js](file:///home/privateproperty/Github/Ekya/server/SnapshotStore.js)
+Persists encrypted snapshots. Interface: `save(roomId, encryptedSnapshot)`, `load(roomId)`. Default implementation: in-memory Map with optional JSON file backup.
+
+---
+
+### 6. Developer SDK — Public API
+
+#### [NEW] [index.js](file:///home/privateproperty/Github/Ekya/src/index.js)
+Exports the public API:
+
+```javascript
+// Main classes
+export { EkyaDocument } from './EkyaDocument.js';
+export { EkyaProvider } from './EkyaProvider.js';
+
+// CRDTs (for custom usage)
+export { GCounter } from './core/GCounter.js';
+export { LWWRegister } from './core/LWWRegister.js';
+export { LWWMap } from './core/LWWMap.js';
+export { RGA } from './core/RGA.js';
+
+// Crypto utilities
+export { KeyManager } from './crypto/KeyManager.js';
+```
+
+#### [NEW] [EkyaDocument.js](file:///home/privateproperty/Github/Ekya/src/EkyaDocument.js)
+The main developer-facing class. Wraps a CRDT instance + crypto + sync.
+
+```javascript
+const doc = new EkyaDocument({
+  id: 'my-document',
+  type: 'text',        // 'text' | 'map' | 'counter'
+  nodeId: 'user-abc',
+});
+
+doc.getText();              // read collaborative text
+doc.insertText(5, 'hello'); // insert at position
+doc.deleteText(5, 5);       // delete 5 chars from position
+doc.on('update', (changes) => { ... }); // listen for remote changes
+```
+
+#### [NEW] [EkyaProvider.js](file:///home/privateproperty/Github/Ekya/src/EkyaProvider.js)
+Manages network connection, encryption, and sync for one or more documents.
+
+```javascript
+const provider = new EkyaProvider({
+  signalingUrl: 'ws://localhost:4444',
+  documentKey: await KeyManager.generateDocumentKey(),
+  transport: 'websocket',  // 'websocket' | 'webrtc' | 'both'
+});
+
+provider.connect(doc);
+provider.awareness.setLocalState({ cursor: 42, user: 'Alice' });
+provider.on('peers', (peers) => { ... });
+```
+
+---
+
+### 7. Interactive Demo (`demo/`)
+
+#### [NEW] [demo/index.html](file:///home/privateproperty/Github/Ekya/demo/index.html)
+Landing page with two embedded demos: collaborative text editor and shared counter. Premium glassmorphism dark-mode design with live E2EE indicator.
+
+#### [NEW] [demo/editor.js](file:///home/privateproperty/Github/Ekya/demo/editor.js)
+Collaborative text editor demo using `EkyaDocument` with `type: 'text'` (RGA). Shows real-time cursor awareness, typing indicators, and an encryption status badge.
+
+#### [NEW] [demo/counter.js](file:///home/privateproperty/Github/Ekya/demo/counter.js)
+Shared counter demo using `EkyaDocument` with `type: 'counter'` (G-Counter). Multiple browser tabs can increment, and results merge conflict-free.
+
+#### [NEW] [demo/styles.css](file:///home/privateproperty/Github/Ekya/demo/styles.css)
+Premium dark-mode styling with glassmorphism, smooth animations, and Inter font.
+
+---
+
+### 8. Documentation & CI
+
+#### [NEW] [README.md](file:///home/privateproperty/Github/Ekya/README.md)
+Professional README with: badges, architecture diagram (mermaid), quickstart guide, API reference, security model explanation, connection to SecureConnect/Kalpa ecosystem.
+
+#### [NEW] [CONTRIBUTING.md](file:///home/privateproperty/Github/Ekya/CONTRIBUTING.md)
+Contribution guidelines.
+
+#### [NEW] [LICENSE](file:///home/privateproperty/Github/Ekya/LICENSE)
+MIT License.
+
+#### [NEW] [.github/workflows/ci.yml](file:///home/privateproperty/Github/Ekya/.github/workflows/ci.yml)
+GitHub Actions: lint + test on push/PR across Node 18/20/22.
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Custom CRDT Implementation vs. Library**: This plan builds CRDTs from scratch rather than wrapping Yjs/Automerge. This gives full control over the encryption integration (operations are encrypted at the source rather than wrapping an opaque library), keeps the dep tree minimal, and makes the codebase fully auditable. The trade-off is that these CRDTs are simpler than Yjs/Automerge (no rich-text formatting, no complex document trees). If you'd prefer to wrap Yjs instead, let me know.
+
+> [!IMPORTANT]  
+> **Encryption Algorithm Choice**: The plan uses ECDH P-256 + HKDF + AES-256-GCM (Web Crypto API). SecureConnect uses RSA-OAEP + AES-GCM. ECDH is chosen here because it produces smaller keys and enables efficient key agreement between peers. If you want RSA for consistency with SecureConnect, I can switch.
+
+> [!NOTE]
+> **Kalpa Integration**: The relay server is built standalone for now. A future enhancement could replace it with a Kalpa configuration that routes WebSocket ↔ WebRTC signaling using UME format, making the relay server a zero-code Kalpa YAML config.
+
+---
+
+## Verification Plan
+
+### Automated Tests (Vitest)
+
+All tests in `__tests__/` directory, run with:
+
+```bash
+cd /home/privateproperty/Github/Ekya && npm test
+```
+
+**CRDT Tests** (`__tests__/core/`):
+- `VectorClock.test.js` — increment, merge, compare (BEFORE/AFTER/CONCURRENT/EQUAL)
+- `GCounter.test.js` — increment from multiple nodes, merge, commutativity
+- `LWWRegister.test.js` — concurrent writes resolve to latest timestamp
+- `LWWMap.test.js` — set/get/delete with tombstones, merge of diverged maps
+- `RGA.test.js` — insert/delete with concurrent edits, merge produces consistent sequence
+- `Serializer.test.js` — round-trip encode/decode for all CRDT types
+
+**Crypto Tests** (`__tests__/crypto/`):
+- `KeyManager.test.js` — key generation, ECDH agreement, HKDF derivation
+- `EncryptedEnvelope.test.js` — encrypt→decrypt round-trip, tampered ciphertext fails
+- `KeyRotation.test.js` — epoch advancement, historical key retrieval
+
+**Networking Tests** (`__tests__/net/`):
+- `SyncProtocol.test.js` — operation broadcast/receive, snapshot request
+- `AwarenessProtocol.test.js` — local state broadcast, peer timeout
+
+**Integration Tests** (`__tests__/integration/`):
+- `e2e-sync.test.js` — two simulated clients: create document, insert text, verify both converge to same state through encrypted relay
+- `server.test.js` — relay server correctly forwards encrypted blobs without decrypting, room join/leave
+
+### Browser Integration Testing
+After building the demo, open two browser tabs pointed at the demo page and verify:
+1. Text typed in Tab A appears in Tab B
+2. The relay server logs show only encrypted (unreadable) payloads
+3. Counter increments from both tabs are reflected correctly
+4. Disconnecting and reconnecting a tab re-syncs state

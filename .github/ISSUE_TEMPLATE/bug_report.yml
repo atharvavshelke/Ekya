@@ -1,0 +1,80 @@
+name: 🐛 Bug Report
+description: Report a bug in the Ekya framework
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill out the sections below.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of Ekya is affected?
+      options:
+        - CRDT Engine (GCounter, LWWRegister, LWWMap, RGA)
+        - Crypto Layer (KeyManager, EncryptedEnvelope, KeyRotation)
+        - Networking (WebSocket, WebRTC, SyncProtocol)
+        - Relay Server
+        - SDK API (EkyaDocument, EkyaProvider)
+        - Demo
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear description of what the bug is.
+      placeholder: "When I do X, Y happens instead of Z..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this bug?
+      value: |
+        1. 
+        2. 
+        3. 
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js Version
+      placeholder: "e.g., 20.11.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - 🔴 Critical (data loss, security issue, convergence failure)
+        - 🟡 Major (feature broken, no workaround)
+        - 🟢 Minor (cosmetic, workaround available)
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: security
+    attributes:
+      label: Security Impact
+      options:
+        - label: This bug may have security implications (e.g., plaintext leakage, crypto weakness)

@@ -1,0 +1,67 @@
+name: ✨ Feature Request
+description: Suggest a new feature or enhancement for Ekya
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! This helps shape Ekya's roadmap.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which area does this feature relate to?
+      options:
+        - CRDT Engine (new data type, GC improvement)
+        - Crypto Layer (key management, encryption)
+        - Networking (transport, sync protocol)
+        - Relay Server
+        - SDK API (developer experience)
+        - Demo / Documentation
+        - New capability
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Feature Description
+      description: Describe the feature you'd like to see.
+      placeholder: "I'd like Ekya to support..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use Case
+      description: What problem does this solve? How would you use it?
+    validations:
+      required: true
+
+  - type: textarea
+    id: api-design
+    attributes:
+      label: Proposed API (optional)
+      description: If you have ideas for the API, sketch them here.
+      render: javascript
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - High (blocks my use case)
+        - Medium (would improve my workflow)
+        - Low (nice to have)
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I'm willing to implement this feature

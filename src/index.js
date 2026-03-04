@@ -36,5 +36,7 @@ export { KeyRotation } from './crypto/KeyRotation.js';
 
 // ─── Networking ──────────────────────────────────────────────────
 export { WebSocketTransport } from './net/WebSocketTransport.js';
+export { WebRTCTransport } from './net/WebRTCTransport.js';
+export { HybridTransport } from './net/HybridTransport.js';
 export { SyncProtocol } from './net/SyncProtocol.js';
 export { AwarenessProtocol } from './net/AwarenessProtocol.js';

@@ -1,0 +1,33 @@
+# Ekya — E2EE Real-Time Collaborative CRDT Framework
+
+## Stage 1: Foundation (CRDTs + Serialization)
+- [x] Initialize project scaffolding (package.json, vitest, eslint, prettier, gitignore)
+- [x] Implement VectorClock
+- [x] Implement Operation (with opId, causalDeps)
+- [x] Implement GCounter
+- [x] Implement LWWRegister
+- [x] Implement LWWMap
+- [x] Implement RGA (fixed convergence bug in elemIdEquals null handling)
+- [x] Implement Serializer (msgpackr)
+- [x] Write Stage 1 tests (44 tests)
+
+## Stage 2: Crypto + Relay + Integration
+- [x] Implement KeyManager (ECDH P-256, HKDF, AES-256-GCM)
+- [x] Implement EncryptedEnvelope
+- [x] Implement KeyRotation (epoch-based)
+- [x] Implement Relay Server (room pub/sub, message forwarding, snapshot storage)
+- [x] Write Stage 2 tests (19 crypto + 4 integration = 23 tests)
+
+## Stage 3: Networking + SDK
+- [x] Implement WebSocketTransport (reconnection, buffering)
+- [x] Implement SyncProtocol (encrypted ops, dedup, snapshot sync)
+- [x] Implement AwarenessProtocol (presence, heartbeats)
+- [x] Implement EkyaDocument (developer API)
+- [x] Implement EkyaProvider (wire encrypt→relay→decrypt pipeline)
+
+## Stage 4: Documentation
+- [x] Write README.md with architecture diagram, quickstart, security model
+- [x] Create LICENSE (MIT)
+- [x] Set up GitHub Actions CI (Node 18/20/22)
+
+## ✅ Final Result: 83/83 tests passing across 11 test suites
