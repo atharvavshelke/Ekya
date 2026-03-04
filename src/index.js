@@ -22,6 +22,7 @@ export { EkyaProvider } from './EkyaProvider.js';
 
 // ─── CRDTs (for custom/advanced usage) ──────────────────────────
 export { GCounter } from './core/GCounter.js';
+export { PNCounter } from './core/PNCounter.js';
 export { LWWRegister } from './core/LWWRegister.js';
 export { LWWMap } from './core/LWWMap.js';
 export { RGA } from './core/RGA.js';

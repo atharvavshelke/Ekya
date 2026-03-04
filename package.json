@@ -16,7 +16,8 @@
     "format": "prettier --write .",
     "demo": "node demo/server.js",
     "start": "node demo/server.js",
-    "relay": "node server/RelayServer.js"
+    "relay": "node server/RelayServer.js",
+    "bench": "node benchmarks/run.js"
   },
   "keywords": [
     "crdt",
