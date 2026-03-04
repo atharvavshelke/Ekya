@@ -1,15 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ekya — E2EE Collaborative Demo</title>
-    <meta name="description" content="Live demo of Ekya: end-to-end encrypted real-time collaboration. The server never sees your data.">
+    <meta name="description"
+        content="Live demo of Ekya: end-to-end encrypted real-time collaboration. The server never sees your data.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
     <!-- ═══════════════ HERO ═══════════════ -->
     <header class="hero">
@@ -24,19 +29,29 @@
                 <span class="title-sanskrit">एक्य</span>
                 <span class="title-main">Ekya</span>
             </h1>
-            <p class="hero-subtitle">Real-time collaborative editing where the server <strong>never</strong> sees your data.</p>
-            <p class="hero-desc">Open this page in two tabs. Everything is encrypted with AES-256-GCM. The relay server forwards opaque blobs it cannot decrypt.</p>
+            <p class="hero-subtitle">Real-time collaborative editing where the server <strong>never</strong> sees your
+                data.</p>
+            <p class="hero-desc">Open this page in two tabs. Everything is encrypted with AES-256-GCM. The relay server
+                forwards opaque blobs it cannot decrypt.</p>
             <div class="hero-actions">
                 <a href="#editor-section" class="btn btn-primary">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                    </svg>
                     Try Text Editor
                 </a>
                 <a href="#counter-section" class="btn btn-secondary">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2v20M2 12h20" />
+                    </svg>
                     Try Counter
                 </a>
                 <a href="https://github.com/atharvavshelke/Ekya" class="btn btn-ghost" target="_blank">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                        <path
+                            d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+                    </svg>
                     GitHub
                 </a>
             </div>
@@ -75,6 +90,12 @@
                 <span class="crypto-label">Ops Encrypted</span>
                 <span class="crypto-value" id="crypto-ops">0</span>
             </div>
+            <div class="crypto-divider"></div>
+            <div class="crypto-item">
+                <span class="crypto-icon">📡</span>
+                <span class="crypto-label">Transport</span>
+                <span class="crypto-value" id="crypto-transport">Relay (WS)</span>
+            </div>
         </div>
     </div>
 
@@ -84,7 +105,8 @@
             <div class="section-icon">📝</div>
             <div>
                 <h2>Collaborative Text Editor</h2>
-                <p>Type below. Changes are encrypted at the operation level and synced via the relay server. Open another tab to see real-time E2EE collaboration.</p>
+                <p>Type below. Changes are encrypted at the operation level and synced via the relay server. Open
+                    another tab to see real-time E2EE collaboration.</p>
             </div>
         </div>
         <div class="editor-container">
@@ -101,10 +123,15 @@
                     </div>
                 </div>
             </div>
-            <textarea id="editor" class="editor-textarea" placeholder="Start typing... every keystroke is encrypted before leaving your device."></textarea>
+            <textarea id="editor" class="editor-textarea"
+                placeholder="Start typing... every keystroke is encrypted before leaving your device."></textarea>
             <div class="editor-footer">
                 <div class="encryption-indicator">
-                    <svg class="lock-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    <svg class="lock-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2.5">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
                     <span>Every operation encrypted with AES-256-GCM</span>
                 </div>
                 <div id="last-op" class="last-op"></div>
@@ -118,7 +145,8 @@
             <div class="section-icon">🔢</div>
             <div>
                 <h2>Encrypted Shared Counter</h2>
-                <p>A GCounter CRDT — grow-only, conflict-free, encrypted. Click to increment from this node. All tabs converge automatically.</p>
+                <p>A GCounter CRDT — grow-only, conflict-free, encrypted. Click to increment from this node. All tabs
+                    converge automatically.</p>
             </div>
         </div>
         <div class="counter-container">
@@ -151,7 +179,8 @@
             <div class="section-icon">🕵️</div>
             <div>
                 <h2>What the Server Sees</h2>
-                <p>This is the actual encrypted traffic passing through the relay server. Notice: <strong>no plaintext anywhere</strong>.</p>
+                <p>This is the actual encrypted traffic passing through the relay server. Notice: <strong>no plaintext
+                        anywhere</strong>.</p>
             </div>
         </div>
         <div class="traffic-container">
@@ -179,7 +208,8 @@
                 <div class="pipeline-number">1</div>
                 <div class="pipeline-content">
                     <h3>CRDT Mutation</h3>
-                    <p>Your edit produces an <code>Operation</code> with a deterministic <code>opId</code> (SHA-256) and causal dependencies (vector clock).</p>
+                    <p>Your edit produces an <code>Operation</code> with a deterministic <code>opId</code> (SHA-256) and
+                        causal dependencies (vector clock).</p>
                 </div>
             </div>
             <div class="pipeline-arrow">→</div>
@@ -211,7 +241,8 @@
                 <div class="pipeline-number">5</div>
                 <div class="pipeline-content">
                     <h3>Decrypt & Merge</h3>
-                    <p>The peer decrypts, deserializes, and applies the operation to their local CRDT. Convergence is guaranteed.</p>
+                    <p>The peer decrypts, deserializes, and applies the operation to their local CRDT. Convergence is
+                        guaranteed.</p>
                 </div>
             </div>
         </div>
@@ -238,4 +269,5 @@
     <script src="ekya-browser.js"></script>
     <script src="app.js"></script>
 </body>
+
 </html>

@@ -26,6 +26,7 @@ export { PNCounter } from './core/PNCounter.js';
 export { LWWRegister } from './core/LWWRegister.js';
 export { LWWMap } from './core/LWWMap.js';
 export { RGA } from './core/RGA.js';
+export { RichText } from './core/RichText.js';
 export { VectorClock } from './core/VectorClock.js';
 export { Operation } from './core/Operation.js';
 export { Serializer } from './core/Serializer.js';
@@ -34,6 +35,8 @@ export { Serializer } from './core/Serializer.js';
 export { KeyManager } from './crypto/KeyManager.js';
 export { EncryptedEnvelope } from './crypto/EncryptedEnvelope.js';
 export { KeyRotation } from './crypto/KeyRotation.js';
+export { TreeKEM } from './crypto/TreeKEM.js';
+export { DoubleRatchet } from './crypto/DoubleRatchet.js';
 
 // ─── Networking ──────────────────────────────────────────────────
 export { WebSocketTransport } from './net/WebSocketTransport.js';

@@ -351,6 +351,175 @@
         }
     }
 
+    // ─── WebRTC P2P Transport ─────────────────────────────────
+    const rtcPeers = new Map();  // peerId → { pc, channel }
+    const transportStatus = document.getElementById('crypto-transport');
+    let p2pActive = false;
+
+    const rtcConfig = {
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+        ],
+    };
+
+    function initiatePeerConnection(peerId) {
+        if (rtcPeers.has(peerId)) return;
+        // Only the alphabetically lower nodeId initiates (prevents double-connect)
+        if (NODE_ID > peerId) return;
+
+        const pc = new RTCPeerConnection(rtcConfig);
+        const channel = pc.createDataChannel('ekya', { ordered: true });
+        const peer = { pc, channel: null, ready: false };
+        rtcPeers.set(peerId, peer);
+
+        channel.onopen = () => {
+            peer.channel = channel;
+            peer.ready = true;
+            updateTransportStatus();
+            console.log(`📡 P2P data channel open with ${peerId}`);
+        };
+
+        channel.onmessage = async (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                await handleMessage(msg);
+                addTrafficEntry({ ciphertext: msg.envelope?.ciphertext || '(P2P)', _p2p: true });
+            } catch (e) {
+                console.error('P2P message error:', e);
+            }
+        };
+
+        channel.onclose = () => {
+            peer.ready = false;
+            updateTransportStatus();
+        };
+
+        pc.onicecandidate = (e) => {
+            if (e.candidate) {
+                send({ action: 'signal-candidate', targetId: peerId, candidate: e.candidate });
+            }
+        };
+
+        pc.createOffer().then((offer) => {
+            pc.setLocalDescription(offer);
+            send({ action: 'signal-offer', targetId: peerId, sdp: offer });
+        });
+    }
+
+    async function handleSignalOffer(msg) {
+        const peerId = msg.fromId;
+        const pc = new RTCPeerConnection(rtcConfig);
+        const peer = { pc, channel: null, ready: false };
+        rtcPeers.set(peerId, peer);
+
+        pc.ondatachannel = (e) => {
+            const channel = e.channel;
+            channel.onopen = () => {
+                peer.channel = channel;
+                peer.ready = true;
+                updateTransportStatus();
+                console.log(`📡 P2P data channel open with ${peerId}`);
+            };
+
+            channel.onmessage = async (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    await handleMessage(data);
+                } catch (e) {
+                    console.error('P2P message error:', e);
+                }
+            };
+
+            channel.onclose = () => {
+                peer.ready = false;
+                updateTransportStatus();
+            };
+        };
+
+        pc.onicecandidate = (e) => {
+            if (e.candidate) {
+                send({ action: 'signal-candidate', targetId: peerId, candidate: e.candidate });
+            }
+        };
+
+        await pc.setRemoteDescription(msg.sdp);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        send({ action: 'signal-answer', targetId: peerId, sdp: answer });
+    }
+
+    async function handleSignalAnswer(msg) {
+        const peer = rtcPeers.get(msg.fromId);
+        if (peer) {
+            await peer.pc.setRemoteDescription(msg.sdp);
+        }
+    }
+
+    async function handleSignalCandidate(msg) {
+        const peer = rtcPeers.get(msg.fromId);
+        if (peer) {
+            await peer.pc.addIceCandidate(msg.candidate);
+        }
+    }
+
+    function sendViaP2P(msg) {
+        let sent = false;
+        for (const [peerId, peer] of rtcPeers) {
+            if (peer.ready && peer.channel && peer.channel.readyState === 'open') {
+                peer.channel.send(JSON.stringify(msg));
+                sent = true;
+            }
+        }
+        return sent;
+    }
+
+    function updateTransportStatus() {
+        const p2pCount = [...rtcPeers.values()].filter((p) => p.ready).length;
+        p2pActive = p2pCount > 0;
+        if (p2pActive) {
+            transportStatus.textContent = `P2P ✓ (${p2pCount})`;
+            transportStatus.style.color = '#22c55e';
+        } else {
+            transportStatus.textContent = 'Relay (WS)';
+            transportStatus.style.color = '';
+        }
+    }
+
+    // Patch message handler to also handle signaling
+    const _origHandleMessage = handleMessage;
+    handleMessage = async function (msg) {
+        if (msg.action === 'signal-offer') return handleSignalOffer(msg);
+        if (msg.action === 'signal-answer') return handleSignalAnswer(msg);
+        if (msg.action === 'signal-candidate') return handleSignalCandidate(msg);
+        if (msg.action === 'peer-joined') {
+            addPeerIndicator(msg.peerId);
+            // Try to establish P2P with the new peer
+            setTimeout(() => initiatePeerConnection(msg.peerId), 500);
+            return;
+        }
+        return _origHandleMessage(msg);
+    };
+
+    // Patch broadcastOp to prefer P2P when available
+    const _origBroadcastOp = broadcastOp;
+    broadcastOp = async function (op, roomId) {
+        const envelope = await BrowserCrypto.encrypt(op.toJSON(), documentKey);
+        envelope.epoch = 0;
+        envelope.documentId = roomId;
+        envelope.type = 'operation';
+
+        // Try P2P first, fallback to relay
+        const sentP2P = sendViaP2P({ action: 'envelope', envelope, roomId });
+        send({ action: 'broadcast', roomId, envelope });
+
+        opsEncrypted++;
+        cryptoOps.textContent = opsEncrypted;
+
+        addTrafficEntry(envelope);
+        lastOp.textContent = `${envelope.ciphertext.substring(0, 32)}… ${sentP2P ? '(P2P+Relay)' : '(Relay)'}`;
+    };
+
     // ─── Boot ─────────────────────────────────────────────────
     await initCrypto();
     connectWS();
@@ -365,4 +534,5 @@
     console.log(`   Key: AES-256-GCM (derived via PBKDF2 for demo)`);
     console.log(`   Text Doc: ${DOC_ID_TEXT}`);
     console.log(`   Counter Doc: ${DOC_ID_COUNTER}`);
+    console.log(`   WebRTC: P2P upgrade enabled`);
 })();

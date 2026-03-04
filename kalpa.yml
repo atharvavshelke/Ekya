@@ -1,0 +1,161 @@
+# ═══════════════════════════════════════════════════════════════
+# Ekya Relay Server — Kalpa YAML Configuration
+# ═══════════════════════════════════════════════════════════════
+#
+# This file replaces the standalone RelayServer.js with a
+# declarative Kalpa configuration. Deploy with:
+#
+#   kalpa run kalpa.yml
+#
+# Kalpa handles WebSocket lifecycle, room management, and
+# message routing — Ekya's trustless relay becomes zero-code.
+# ═══════════════════════════════════════════════════════════════
+
+name: ekya-relay
+version: "1.0"
+description: "Ekya E2EE Collaborative CRDT Relay (via Kalpa)"
+
+# ─── Server Configuration ────────────────────────────────────
+server:
+  port: ${PORT:-4444}
+  host: "0.0.0.0"
+
+  # Health check endpoint
+  health:
+    path: /health
+    response:
+      status: ok
+      service: ekya-relay
+      version: "0.1.0"
+
+  # Static file serving for the demo
+  static:
+    path: ./demo
+    index: index.html
+
+# ─── Protocol Configuration ──────────────────────────────────
+protocols:
+  websocket:
+    path: /
+    
+    # Ping/pong keepalive
+    heartbeat:
+      interval: 30000
+      timeout: 10000
+    
+    # Message size limit (encrypted envelopes)
+    maxPayloadSize: "1mb"
+
+# ─── Message Routing ─────────────────────────────────────────
+# Kalpa routes messages based on declarative rules.
+# The relay NEVER inspects encrypted content.
+routing:
+  rules:
+    # Room join
+    - match:
+        action: join
+      handler: room.join
+      params:
+        roomField: room
+        clientIdField: clientId
+      log: "${clientId} joined room ${room}"
+
+    # Room leave
+    - match:
+        action: leave
+      handler: room.leave
+      params:
+        roomField: room
+      log: "${clientId} left room ${room}"
+
+    # Encrypted operation broadcast
+    - match:
+        action: envelope
+        type: operation
+      handler: room.broadcast
+      params:
+        roomField: room
+        excludeSender: true
+      log: "Relay: ${clientId} → room ${room} | type=operation epoch=${epoch} | encrypted"
+
+    # Encrypted snapshot upload
+    - match:
+        action: envelope
+        type: snapshot
+      handler: room.storeAndBroadcast
+      params:
+        roomField: room
+        storageKey: "snapshot:${room}:${epoch}"
+        excludeSender: true
+      log: "Snapshot saved for room ${room} (epoch ${epoch})"
+
+    # Snapshot request
+    - match:
+        action: get-snapshot
+      handler: room.retrieve
+      params:
+        storageKey: "snapshot:${room}:latest"
+      log: "Snapshot requested for room ${room}"
+
+    # WebRTC signaling (SDP/ICE forwarding)
+    - match:
+        action: signal-offer
+      handler: room.sendToPeer
+      params:
+        targetField: targetId
+      log: "WebRTC offer: ${clientId} → ${targetId}"
+
+    - match:
+        action: signal-answer
+      handler: room.sendToPeer
+      params:
+        targetField: targetId
+      log: "WebRTC answer: ${clientId} → ${targetId}"
+
+    - match:
+        action: signal-candidate
+      handler: room.sendToPeer
+      params:
+        targetField: targetId
+      log: "ICE candidate: ${clientId} → ${targetId}"
+
+    # Awareness (cursor/presence) broadcast
+    - match:
+        action: awareness
+      handler: room.broadcast
+      params:
+        roomField: room
+        excludeSender: true
+
+# ─── Storage ─────────────────────────────────────────────────
+# In-memory storage for snapshots (use Redis/S3 for production)
+storage:
+  driver: memory
+  ttl: 3600  # Snapshot retention: 1 hour
+
+# ─── Security ────────────────────────────────────────────────
+# The relay is trustless by design — it never sees plaintext.
+# These rules add defense-in-depth.
+security:
+  # Rate limiting per client
+  rateLimit:
+    window: 1000  # 1 second
+    maxRequests: 100
+
+  # Connection limits
+  maxConnectionsPerIp: 50
+
+  # CORS (for browser demo)
+  cors:
+    origins: ["*"]
+
+# ─── Logging ─────────────────────────────────────────────────
+logging:
+  level: info
+  format: "[Ekya Relay] ${timestamp} ${message}"
+  
+  # Never log encrypted content (defense-in-depth)
+  redact:
+    - "**.ciphertext"
+    - "**.iv"
+    - "**.sdp"
