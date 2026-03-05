@@ -123,7 +123,12 @@ export class WebSocketTransport extends EventEmitter {
     send(envelope) {
         const message = JSON.stringify(envelope);
         if (this._connected && this._ws && this._ws.readyState === 1) {
-            this._ws.send(message);
+            // Tier 1 Metadata fix: Network Jitter (0-50ms) to obfuscate timing
+            setTimeout(() => {
+                if (this._connected && this._ws && this._ws.readyState === 1) {
+                    this._ws.send(message);
+                }
+            }, Math.floor(Math.random() * 50));
         } else {
             // Buffer messages during disconnection
             this._sendBuffer.push(message);

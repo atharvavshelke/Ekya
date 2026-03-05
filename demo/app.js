@@ -104,7 +104,13 @@
 
     function send(msg) {
         if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify(msg));
+            const payload = JSON.stringify(msg);
+            // Tier 1 Metadata fix: Network Jitter (0-50ms)
+            setTimeout(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(payload);
+                }
+            }, Math.floor(Math.random() * 50));
         }
     }
 
@@ -465,9 +471,15 @@
 
     function sendViaP2P(msg) {
         let sent = false;
+        const payload = JSON.stringify(msg);
         for (const [peerId, peer] of rtcPeers) {
             if (peer.ready && peer.channel && peer.channel.readyState === 'open') {
-                peer.channel.send(JSON.stringify(msg));
+                // Tier 1 Metadata fix: Network Jitter (0-50ms)
+                setTimeout(() => {
+                    if (peer.channel && peer.channel.readyState === 'open') {
+                        peer.channel.send(payload);
+                    }
+                }, Math.floor(Math.random() * 50));
                 sent = true;
             }
         }

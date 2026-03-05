@@ -231,7 +231,13 @@ export class WebRTCTransport extends EventEmitter {
         const channel = this._channels.get(peerId);
 
         if (channel && channel.readyState === 'open') {
-            channel.send(JSON.stringify(message));
+            const payload = JSON.stringify(message);
+            // Tier 1 Metadata fix: Network Jitter (0-50ms) to obfuscate timing
+            setTimeout(() => {
+                if (channel.readyState === 'open') {
+                    channel.send(payload);
+                }
+            }, Math.floor(Math.random() * 50));
             return true;
         }
 
@@ -254,7 +260,12 @@ export class WebRTCTransport extends EventEmitter {
 
         for (const [peerId, channel] of this._channels) {
             if (channel.readyState === 'open') {
-                channel.send(payload);
+                // Tier 1 Metadata fix: Network Jitter (0-50ms)
+                setTimeout(() => {
+                    if (channel.readyState === 'open') {
+                        channel.send(payload);
+                    }
+                }, Math.floor(Math.random() * 50));
                 sent++;
             }
         }
