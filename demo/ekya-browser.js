@@ -241,7 +241,16 @@ class BrowserCrypto {
     }
     static async encrypt(data, key) {
         const iv = crypto.getRandomValues(new Uint8Array(12));
-        const plaintext = new TextEncoder().encode(JSON.stringify(data));
+        
+        // Tier 1 Metadata fix: Fixed-size envelope padding
+        let jsonPayload = JSON.stringify(data);
+        const CHUNK_SIZE = 512;
+        const padLength = CHUNK_SIZE - (jsonPayload.length % CHUNK_SIZE);
+        if (padLength > 0) {
+            jsonPayload = jsonPayload.padEnd(jsonPayload.length + padLength, ' ');
+        }
+        const plaintext = new TextEncoder().encode(jsonPayload);
+        
         const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
         return {
             iv: btoa(String.fromCharCode(...iv)),

@@ -34,7 +34,22 @@ export class EncryptedEnvelope {
      * @returns {Promise<object>} Encrypted envelope
      */
     static async encryptOperation(operation, documentKey, documentId, epoch = 0) {
-        const plaintext = Serializer.encode(operation.toJSON());
+        const payload = Serializer.encode(operation.toJSON());
+
+        // Tier 1 Metadata fix: Fixed-size envelope padding with length prefix
+        const CHUNK_SIZE = 512;
+        const rawLength = 4 + payload.length; // 4 bytes for Uint32 length
+        const remainder = rawLength % CHUNK_SIZE;
+        const padLength = remainder === 0 ? 0 : CHUNK_SIZE - remainder;
+
+        const plaintext = new Uint8Array(rawLength + padLength);
+        new DataView(plaintext.buffer, plaintext.byteOffset).setUint32(0, payload.length, true);
+        plaintext.set(payload, 4);
+
+        if (padLength > 0) {
+            crypto.getRandomValues(new Uint8Array(plaintext.buffer, plaintext.byteOffset + rawLength, padLength));
+        }
+
         const iv = crypto.getRandomValues(new Uint8Array(12));
 
         const ciphertext = await crypto.subtle.encrypt(
@@ -63,13 +78,18 @@ export class EncryptedEnvelope {
         const iv = new Uint8Array(Buffer.from(envelope.iv, 'base64'));
         const ciphertext = Buffer.from(envelope.ciphertext, 'base64');
 
-        const plaintext = await crypto.subtle.decrypt(
+        const plaintextBuf = await crypto.subtle.decrypt(
             { name: 'AES-GCM', iv },
             documentKey,
             ciphertext,
         );
 
-        return Serializer.decode(new Uint8Array(plaintext));
+        // Extract actual payload using length prefix (skipping the random padding)
+        const dv = new DataView(plaintextBuf);
+        const payloadLength = dv.getUint32(0, true);
+        const payload = new Uint8Array(plaintextBuf, 4, payloadLength);
+
+        return Serializer.decode(payload);
     }
 
     /**
@@ -81,7 +101,22 @@ export class EncryptedEnvelope {
      * @returns {Promise<object>} Encrypted snapshot envelope
      */
     static async encryptSnapshot(state, documentKey, documentId, epoch = 0) {
-        const plaintext = Serializer.encode(state);
+        const payload = Serializer.encode(state);
+
+        // Tier 1 Metadata fix: Fixed-size padding (use larger 4KB chunks for snapshots to hide doc size)
+        const CHUNK_SIZE = 4096;
+        const rawLength = 4 + payload.length;
+        const remainder = rawLength % CHUNK_SIZE;
+        const padLength = remainder === 0 ? 0 : CHUNK_SIZE - remainder;
+
+        const plaintext = new Uint8Array(rawLength + padLength);
+        new DataView(plaintext.buffer, plaintext.byteOffset).setUint32(0, payload.length, true);
+        plaintext.set(payload, 4);
+
+        if (padLength > 0) {
+            crypto.getRandomValues(new Uint8Array(plaintext.buffer, plaintext.byteOffset + rawLength, padLength));
+        }
+
         const iv = crypto.getRandomValues(new Uint8Array(12));
 
         const ciphertext = await crypto.subtle.encrypt(
@@ -110,13 +145,18 @@ export class EncryptedEnvelope {
         const iv = new Uint8Array(Buffer.from(envelope.iv, 'base64'));
         const ciphertext = Buffer.from(envelope.ciphertext, 'base64');
 
-        const plaintext = await crypto.subtle.decrypt(
+        const plaintextBuf = await crypto.subtle.decrypt(
             { name: 'AES-GCM', iv },
             documentKey,
             ciphertext,
         );
 
-        return Serializer.decode(new Uint8Array(plaintext));
+        // Extract actual payload using length prefix
+        const dv = new DataView(plaintextBuf);
+        const payloadLength = dv.getUint32(0, true);
+        const payload = new Uint8Array(plaintextBuf, 4, payloadLength);
+
+        return Serializer.decode(payload);
     }
 
     /**

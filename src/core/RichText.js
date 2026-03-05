@@ -36,6 +36,17 @@ import { RGA } from './RGA.js';
  * ```
  */
 export class RichText {
+    // Tier 1 Metadata fix: Priority and Nestability for marks
+    static MARK_TYPES = {
+        bold: { nestable: true, priority: 1, exclusive: false },
+        italic: { nestable: true, priority: 1, exclusive: false },
+        underline: { nestable: true, priority: 1, exclusive: false },
+        strikethrough: { nestable: true, priority: 1, exclusive: false },
+        code: { nestable: false, priority: 2, exclusive: true },
+        link: { nestable: false, priority: 3, exclusive: true },
+        comment: { nestable: false, priority: 4, exclusive: true }
+    };
+
     /**
      * @param {string} id - Unique identifier
      * @param {string} nodeId - Local node identifier
@@ -61,6 +72,44 @@ export class RichText {
          * @type {Map<number, {type: string, metadata: object, timestamp: number, writerNodeId: string}>}
          */
         this._blocks = new Map();
+    }
+
+    _applyMarkWithRules(charMarks, mark, value, timestamp, writerNodeId) {
+        const newDef = RichText.MARK_TYPES[mark] || { nestable: true, priority: 1, exclusive: false };
+        let canApply = true;
+
+        // 1. Resolve conflicts with different marks (e.g. link vs code)
+        for (const [existingMark, existingData] of charMarks.entries()) {
+            if (existingMark === mark) continue;
+
+            const existingDef = RichText.MARK_TYPES[existingMark] || { nestable: true, priority: 1, exclusive: false };
+
+            if (newDef.exclusive || existingDef.exclusive || !newDef.nestable || !existingDef.nestable) {
+                if (newDef.priority < existingDef.priority) {
+                    canApply = false;
+                } else if (newDef.priority > existingDef.priority) {
+                    charMarks.delete(existingMark);
+                } else {
+                    if (this._shouldReplace(existingData, { timestamp, writerNodeId })) {
+                        charMarks.delete(existingMark);
+                    } else {
+                        canApply = false;
+                    }
+                }
+            }
+        }
+
+        // 2. Resolve conflicts with the same mark (LWW) and apply
+        if (canApply) {
+            const existing = charMarks.get(mark);
+            if (!existing || this._shouldReplace(existing, { timestamp, writerNodeId })) {
+                if (value === null || value === false) {
+                    charMarks.delete(mark); // Support removing marks
+                } else {
+                    charMarks.set(mark, { value, timestamp, writerNodeId });
+                }
+            }
+        }
     }
 
     /**
@@ -146,11 +195,7 @@ export class RichText {
             }
 
             const charMarks = this._marks.get(elemKey);
-            const existing = charMarks.get(mark);
-
-            if (!existing || this._shouldReplace(existing, { timestamp, writerNodeId: this.nodeId })) {
-                charMarks.set(mark, { value, timestamp, writerNodeId: this.nodeId });
-            }
+            this._applyMarkWithRules(charMarks, mark, value, timestamp, this.nodeId);
         }
 
         const op = new Operation({
@@ -225,11 +270,7 @@ export class RichText {
                     }
 
                     const charMarks = this._marks.get(elemKey);
-                    const existing = charMarks.get(mark);
-
-                    if (!existing || this._shouldReplace(existing, { timestamp, writerNodeId: op.nodeId })) {
-                        charMarks.set(mark, { value, timestamp, writerNodeId: op.nodeId });
-                    }
+                    this._applyMarkWithRules(charMarks, mark, value, timestamp, op.nodeId);
                 }
                 break;
             }
