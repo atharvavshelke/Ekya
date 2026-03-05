@@ -39,7 +39,7 @@ describe('Integration: E2E Encrypted Sync', () => {
         clientB.send({ action: 'join', roomId: docId });
 
         // Wait for join to process
-        await new Promise((r) => setTimeout(r, 100));
+        await new Promise((r) => setTimeout(r, 2000));
 
         // Set up receiver on client B
         const receivedOps = [];
@@ -67,7 +67,7 @@ describe('Integration: E2E Encrypted Sync', () => {
         });
 
         // Wait for relay
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 2000));
 
         // Verify Bob received and decrypted
         expect(receivedOps.length).toBe(1);
@@ -117,7 +117,7 @@ describe('Integration: E2E Encrypted Sync', () => {
         const client = new WebSocketTransport();
         await client.connect(`ws://localhost:${PORT}`);
         client.send({ action: 'join', roomId: docId });
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 2000));
 
         client.send({
             action: 'upload-snapshot',
@@ -125,7 +125,7 @@ describe('Integration: E2E Encrypted Sync', () => {
             envelope: snapshot,
         });
 
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 2000));
 
         // New client requests snapshot
         const client2 = new WebSocketTransport();
@@ -163,7 +163,7 @@ describe('Integration: E2E Encrypted Sync', () => {
         clientA.send({ action: 'join', roomId: docId });
         clientB.send({ action: 'join', roomId: docId });
         clientC.send({ action: 'join', roomId: docId });
-        await new Promise((r) => setTimeout(r, 100));
+        await new Promise((r) => setTimeout(r, 2000));
 
         let bReceived = 0;
         let cReceived = 0;
@@ -181,7 +181,7 @@ describe('Integration: E2E Encrypted Sync', () => {
         const envelope = await EncryptedEnvelope.encryptOperation(op, documentKey, docId);
 
         clientA.send({ action: 'broadcast', roomId: docId, envelope });
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 2000));
 
         // Both B and C should receive it
         expect(bReceived).toBe(1);

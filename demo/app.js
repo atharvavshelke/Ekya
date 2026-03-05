@@ -102,15 +102,28 @@
         };
     }
 
+    let wsBatchBuffer = [];
+    let wsBatchTimer = null;
+
     function send(msg) {
         if (ws && ws.readyState === WebSocket.OPEN) {
             const payload = JSON.stringify(msg);
-            // Tier 1 Metadata fix: Network Jitter (0-50ms)
-            setTimeout(() => {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(payload);
-                }
-            }, Math.floor(Math.random() * 50));
+            wsBatchBuffer.push(payload);
+
+            if (!wsBatchTimer) {
+                // Phase 3 Metadata Hardening: Exponential Jitter & Message Batching
+                // Mean 500ms exponential distribution
+                const delay = -500 * Math.log(1 - Math.random());
+                wsBatchTimer = setTimeout(() => {
+                    wsBatchTimer = null;
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        for (const p of wsBatchBuffer) {
+                            ws.send(p);
+                        }
+                    }
+                    wsBatchBuffer = [];
+                }, delay);
+            }
         }
     }
 
@@ -124,6 +137,15 @@
             addPeerIndicator(msg.peerId);
         } else if (msg.action === 'peer-left') {
             removePeerIndicator(msg.peerId);
+        } else if (msg.action === 'signal-offer' || msg.action === 'signal-answer' || msg.action === 'signal-candidate') {
+            // Phase 3: Blinded Signaling (Decrypt SDP/ICE)
+            if (msg.envelope) {
+                const dec = await BrowserCrypto.decrypt(msg.envelope, documentKey);
+                Object.assign(msg, dec); // Puts sdp or candidate directly on msg
+            }
+            if (msg.action === 'signal-offer') await handleSignalOffer(msg);
+            else if (msg.action === 'signal-answer') await handleSignalAnswer(msg);
+            else if (msg.action === 'signal-candidate') await handleSignalCandidate(msg);
         }
     }
 
@@ -401,15 +423,19 @@
             updateTransportStatus();
         };
 
-        pc.onicecandidate = (e) => {
+        pc.onicecandidate = async (e) => {
             if (e.candidate) {
-                send({ action: 'signal-candidate', targetId: peerId, candidate: e.candidate });
+                // Phase 3: Blinded Signaling (Encrypt ICE)
+                const envelope = await BrowserCrypto.encrypt({ candidate: e.candidate }, documentKey);
+                send({ action: 'signal-candidate', targetId: peerId, envelope });
             }
         };
 
-        pc.createOffer().then((offer) => {
+        pc.createOffer().then(async (offer) => {
             pc.setLocalDescription(offer);
-            send({ action: 'signal-offer', targetId: peerId, sdp: offer });
+            // Phase 3: Blinded Signaling (Encrypt SDP)
+            const envelope = await BrowserCrypto.encrypt({ sdp: offer }, documentKey);
+            send({ action: 'signal-offer', targetId: peerId, envelope });
         });
     }
 
@@ -443,16 +469,21 @@
             };
         };
 
-        pc.onicecandidate = (e) => {
+        pc.onicecandidate = async (e) => {
             if (e.candidate) {
-                send({ action: 'signal-candidate', targetId: peerId, candidate: e.candidate });
+                // Phase 3: Blinded Signaling (Encrypt ICE)
+                const envelope = await BrowserCrypto.encrypt({ candidate: e.candidate }, documentKey);
+                send({ action: 'signal-candidate', targetId: peerId, envelope });
             }
         };
 
         await pc.setRemoteDescription(msg.sdp);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        send({ action: 'signal-answer', targetId: peerId, sdp: answer });
+
+        // Phase 3: Blinded Signaling (Encrypt SDP)
+        const envelope = await BrowserCrypto.encrypt({ sdp: answer }, documentKey);
+        send({ action: 'signal-answer', targetId: peerId, envelope });
     }
 
     async function handleSignalAnswer(msg) {
@@ -469,17 +500,31 @@
         }
     }
 
+    let p2pBatchBuffers = new Map();
+    let p2pBatchTimers = new Map();
+
     function sendViaP2P(msg) {
         let sent = false;
         const payload = JSON.stringify(msg);
         for (const [peerId, peer] of rtcPeers) {
             if (peer.ready && peer.channel && peer.channel.readyState === 'open') {
-                // Tier 1 Metadata fix: Network Jitter (0-50ms)
-                setTimeout(() => {
-                    if (peer.channel && peer.channel.readyState === 'open') {
-                        peer.channel.send(payload);
-                    }
-                }, Math.floor(Math.random() * 50));
+                if (!p2pBatchBuffers.has(peerId)) p2pBatchBuffers.set(peerId, []);
+                p2pBatchBuffers.get(peerId).push(payload);
+
+                if (!p2pBatchTimers.has(peerId)) {
+                    // Phase 3 Metadata Hardening: Exponential Jitter
+                    const delay = -500 * Math.log(1 - Math.random());
+                    p2pBatchTimers.set(peerId, setTimeout(() => {
+                        p2pBatchTimers.delete(peerId);
+                        const buffer = p2pBatchBuffers.get(peerId) || [];
+                        p2pBatchBuffers.set(peerId, []);
+                        if (peer.channel && peer.channel.readyState === 'open') {
+                            for (const p of buffer) {
+                                peer.channel.send(p);
+                            }
+                        }
+                    }, delay));
+                }
                 sent = true;
             }
         }

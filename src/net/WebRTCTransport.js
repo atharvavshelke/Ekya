@@ -46,6 +46,10 @@ export class WebRTCTransport extends EventEmitter {
         this._channels = new Map();
         /** @type {Map<string, Array>} peerId → pending messages */
         this._pendingMessages = new Map();
+        /** @type {Map<string, Array>} peerId → batch array */
+        this._batchBuffers = new Map();
+        /** @type {Map<string, ReturnType<typeof setTimeout>>} peerId → batch timer */
+        this._batchTimers = new Map();
 
         this._setupSignalingListeners();
     }
@@ -232,12 +236,23 @@ export class WebRTCTransport extends EventEmitter {
 
         if (channel && channel.readyState === 'open') {
             const payload = JSON.stringify(message);
-            // Tier 1 Metadata fix: Network Jitter (0-50ms) to obfuscate timing
-            setTimeout(() => {
-                if (channel.readyState === 'open') {
-                    channel.send(payload);
-                }
-            }, Math.floor(Math.random() * 50));
+            // Phase 3 Metadata Hardening: Exponential Jitter
+            if (!this._batchBuffers.has(peerId)) this._batchBuffers.set(peerId, []);
+            this._batchBuffers.get(peerId).push(payload);
+
+            if (!this._batchTimers.has(peerId)) {
+                const delay = -500 * Math.log(1 - Math.random());
+                this._batchTimers.set(peerId, setTimeout(() => {
+                    this._batchTimers.delete(peerId);
+                    const buffer = this._batchBuffers.get(peerId) || [];
+                    this._batchBuffers.set(peerId, []);
+                    if (channel.readyState === 'open') {
+                        for (const p of buffer) {
+                            channel.send(p);
+                        }
+                    }
+                }, delay));
+            }
             return true;
         }
 
@@ -255,17 +270,11 @@ export class WebRTCTransport extends EventEmitter {
      * @returns {number} Number of peers the message was sent to
      */
     broadcast(message) {
-        const payload = JSON.stringify(message);
         let sent = 0;
 
         for (const [peerId, channel] of this._channels) {
             if (channel.readyState === 'open') {
-                // Tier 1 Metadata fix: Network Jitter (0-50ms)
-                setTimeout(() => {
-                    if (channel.readyState === 'open') {
-                        channel.send(payload);
-                    }
-                }, Math.floor(Math.random() * 50));
+                this.sendToPeer(peerId, message);
                 sent++;
             }
         }

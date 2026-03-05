@@ -26,6 +26,8 @@ export class WebSocketTransport extends EventEmitter {
         this._intentionalClose = false;
         /** @type {Array<string>} */
         this._sendBuffer = [];
+        this._batchBuffer = [];
+        this._batchTimer = null;
     }
 
     /**
@@ -123,12 +125,21 @@ export class WebSocketTransport extends EventEmitter {
     send(envelope) {
         const message = JSON.stringify(envelope);
         if (this._connected && this._ws && this._ws.readyState === 1) {
-            // Tier 1 Metadata fix: Network Jitter (0-50ms) to obfuscate timing
-            setTimeout(() => {
-                if (this._connected && this._ws && this._ws.readyState === 1) {
-                    this._ws.send(message);
-                }
-            }, Math.floor(Math.random() * 50));
+            this._batchBuffer.push(message);
+
+            if (!this._batchTimer) {
+                // Phase 3 Metadata Hardening: Exponential Jitter (mean 500ms)
+                const delay = -500 * Math.log(1 - Math.random());
+                this._batchTimer = setTimeout(() => {
+                    this._batchTimer = null;
+                    if (this._connected && this._ws && this._ws.readyState === 1) {
+                        for (const p of this._batchBuffer) {
+                            this._ws.send(p);
+                        }
+                    }
+                    this._batchBuffer = [];
+                }, delay);
+            }
         } else {
             // Buffer messages during disconnection
             this._sendBuffer.push(message);
