@@ -250,6 +250,10 @@ export class RGA {
      */
     apply(op) {
         if (this._appliedOps.has(op.opId)) return false;
+
+        // Phase 4: Strict Sequence Replay Protection
+        if (op.clock <= this.clock.get(op.nodeId)) return false;
+
         this._appliedOps.add(op.opId);
         this.clock.merge(VectorClock.fromJSON(op.causalDeps));
 
@@ -342,6 +346,7 @@ export class RGA {
             seq: this._seq,
             elements: this._elements.map((e) => ({ ...e })),
             clock: this.clock.toJSON(),
+            appliedOps: [...this._appliedOps],
         };
     }
 
@@ -355,6 +360,9 @@ export class RGA {
         rga._seq = data.seq;
         rga._elements = data.elements.map((e) => ({ ...e }));
         rga.clock = VectorClock.fromJSON(data.clock);
+        if (data.appliedOps) {
+            rga._appliedOps = new Set(data.appliedOps);
+        }
         return rga;
     }
 
@@ -372,13 +380,21 @@ export class RGA {
      * For safety in v1, we use a conservative strategy:
      * only remove tombstones that have no live children
      * (no non-deleted element has afterId pointing to the tombstone).
+     * 
+     * If the total number of tombstones exceeds maxTombstones, the oldest
+     * tombstones are forcefully pruned even if it risks a minor merge conflict,
+     * to prevent memory exhaustion attacks.
      *
+     * @param {number} [maxTombstones=100000] - Hard upper bound on tombstones
      * @returns {{ removed: number, remaining: number }}
      */
-    gc() {
+    gc(maxTombstones = 100000) {
         // Build a set of afterIds that are still referenced by live elements
         const referencedAfterIds = new Set();
+        let tombstoneCount = 0;
+
         for (const elem of this._elements) {
+            if (elem.deleted) tombstoneCount++;
             if (!elem.deleted && elem.afterId) {
                 const key = `${elem.afterId.nodeId}:${elem.afterId.seq}`;
                 referencedAfterIds.add(key);
@@ -386,9 +402,6 @@ export class RGA {
         }
 
         // Also check: other tombstones might reference this tombstone.
-        // Only GC a tombstone if NO element (alive or dead) references it
-        // as afterId — unless that referencing element is also a safe-to-GC tombstone.
-        // For conservative v1: require no references at all.
         const allReferenced = new Set();
         for (const elem of this._elements) {
             if (elem.afterId) {
@@ -398,8 +411,17 @@ export class RGA {
         }
 
         const before = this._elements.length;
+        const forcePruneCount = Math.max(0, tombstoneCount - maxTombstones);
+        let prunedForced = 0;
+
         this._elements = this._elements.filter((elem) => {
             if (!elem.deleted) return true; // Keep live elements
+
+            // Phase 5: Hard memory bounds. Drop oldest tombstones if over limit.
+            if (prunedForced < forcePruneCount) {
+                prunedForced++;
+                return false;
+            }
 
             const key = `${elem.elemId.nodeId}:${elem.elemId.seq}`;
             // Keep if any element references this as its afterId

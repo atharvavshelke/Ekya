@@ -66,6 +66,9 @@ export class LWWRegister {
     apply(op) {
         if (this._appliedOps.has(op.opId)) return false;
 
+        // Phase 4: Strict Sequence Replay Protection
+        if (op.clock <= this.clock.get(op.nodeId)) return false;
+
         if (op.type !== 'lww:set') {
             throw new Error(`LWWRegister cannot apply operation of type: ${op.type}`);
         }
@@ -124,6 +127,7 @@ export class LWWRegister {
             timestamp: this._timestamp,
             writerNodeId: this._writerNodeId,
             clock: this.clock.toJSON(),
+            appliedOps: [...this._appliedOps],
         };
     }
 
@@ -138,6 +142,9 @@ export class LWWRegister {
         reg._timestamp = data.timestamp;
         reg._writerNodeId = data.writerNodeId;
         reg.clock = VectorClock.fromJSON(data.clock);
+        if (data.appliedOps) {
+            reg._appliedOps = new Set(data.appliedOps);
+        }
         return reg;
     }
 }

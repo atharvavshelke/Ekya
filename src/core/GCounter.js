@@ -60,6 +60,9 @@ export class GCounter {
     apply(op) {
         if (this._appliedOps.has(op.opId)) return false;
 
+        // Phase 4: Strict Sequence Replay Protection
+        if (op.clock <= this.clock.get(op.nodeId)) return false;
+
         if (op.type !== 'gcounter:increment') {
             throw new Error(`GCounter cannot apply operation of type: ${op.type}`);
         }
@@ -102,6 +105,7 @@ export class GCounter {
             nodeId: this.nodeId,
             counts: { ...this.counts },
             clock: this.clock.toJSON(),
+            appliedOps: [...this._appliedOps],
         };
     }
 
@@ -114,6 +118,9 @@ export class GCounter {
         const counter = new GCounter(data.id, data.nodeId);
         counter.counts = { ...data.counts };
         counter.clock = VectorClock.fromJSON(data.clock);
+        if (data.appliedOps) {
+            counter._appliedOps = new Set(data.appliedOps);
+        }
         return counter;
     }
 

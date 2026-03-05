@@ -91,6 +91,9 @@ export class PNCounter {
     apply(op) {
         if (this._appliedOps.has(op.opId)) return false;
 
+        // Phase 4: Strict Sequence Replay Protection
+        if (op.clock <= this.clock.get(op.nodeId)) return false;
+
         if (op.type === 'pncounter:increment') {
             this.p[op.nodeId] = (this.p[op.nodeId] || 0) + op.data.amount;
         } else if (op.type === 'pncounter:decrement') {
@@ -158,6 +161,7 @@ export class PNCounter {
             p: { ...this.p },
             n: { ...this.n },
             clock: this.clock.toJSON(),
+            appliedOps: [...this._appliedOps],
         };
     }
 
@@ -171,6 +175,9 @@ export class PNCounter {
         counter.p = { ...data.p };
         counter.n = { ...data.n };
         counter.clock = VectorClock.fromJSON(data.clock);
+        if (data.appliedOps) {
+            counter._appliedOps = new Set(data.appliedOps);
+        }
         return counter;
     }
 

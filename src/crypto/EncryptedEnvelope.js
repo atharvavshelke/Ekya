@@ -69,6 +69,36 @@ export class EncryptedEnvelope {
     }
 
     /**
+     * Generate a cryptographic dummy envelope indistinguishable from a real operation.
+     * @param {CryptoKey} documentKey
+     * @param {string} documentId
+     * @param {number} [epoch=0]
+     * @returns {Promise<object>}
+     */
+    static async encryptDummy(documentKey, documentId, epoch = 0) {
+        // Real padded operations are exactly 512 + 4 = 516 bytes (before encryption)
+        const CHUNK_SIZE = 512;
+        const plaintext = new Uint8Array(CHUNK_SIZE + 4);
+        crypto.getRandomValues(plaintext);
+
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const ciphertext = await crypto.subtle.encrypt(
+            { name: 'AES-GCM', iv },
+            documentKey,
+            plaintext,
+        );
+
+        return {
+            iv: Buffer.from(iv).toString('base64'),
+            ciphertext: Buffer.from(ciphertext).toString('base64'),
+            epoch,
+            documentId,
+            type: 'dummy',
+            timestamp: Date.now(),
+        };
+    }
+
+    /**
      * Decrypt an encrypted operation envelope.
      * @param {object} envelope
      * @param {CryptoKey} documentKey

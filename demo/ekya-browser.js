@@ -241,7 +241,7 @@ class BrowserCrypto {
     }
     static async encrypt(data, key) {
         const iv = crypto.getRandomValues(new Uint8Array(12));
-        
+
         // Tier 1 Metadata fix: Fixed-size envelope padding
         let jsonPayload = JSON.stringify(data);
         const CHUNK_SIZE = 512;
@@ -250,7 +250,7 @@ class BrowserCrypto {
             jsonPayload = jsonPayload.padEnd(jsonPayload.length + padLength, ' ');
         }
         const plaintext = new TextEncoder().encode(jsonPayload);
-        
+
         const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
         return {
             iv: btoa(String.fromCharCode(...iv)),
@@ -267,6 +267,15 @@ class BrowserCrypto {
     static async exportKeyToBase64(key) {
         const raw = await crypto.subtle.exportKey('raw', key);
         return btoa(String.fromCharCode(...new Uint8Array(raw)));
+    }
+    static async generateRoomAuthToken(roomId, key) {
+        const raw = await crypto.subtle.exportKey('raw', key);
+        const roomIdBuf = new TextEncoder().encode(roomId);
+        const combined = new Uint8Array(raw.byteLength + roomIdBuf.byteLength);
+        combined.set(new Uint8Array(raw), 0);
+        combined.set(roomIdBuf, raw.byteLength);
+        const hash = await crypto.subtle.digest('SHA-256', combined);
+        return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
     }
 }
 

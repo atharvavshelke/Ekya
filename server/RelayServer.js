@@ -31,6 +31,8 @@ export class RelayServer {
         this._wss = null;
         this._rooms = new RoomManager();
         this._snapshots = new SnapshotStore();
+        /** @type {Map<string, string>} roomId → expected authToken */
+        this._roomAuthTokens = new Map();
         /** @type {Map<string, import('ws').WebSocket>} clientId → ws */
         this._clients = new Map();
 
@@ -56,10 +58,21 @@ export class RelayServer {
         this._wss.on('connection', (ws) => {
             const clientId = uuidv4();
             this._clients.set(clientId, ws);
+            ws.rateLimitQueue = []; // Phase 5: DoS Rate Limiting
 
             this._log(`Client connected: ${clientId}`);
 
             ws.on('message', (data) => {
+                // Rate Limiting (max 100 msgs / sec)
+                const now = Date.now();
+                ws.rateLimitQueue = ws.rateLimitQueue.filter((t) => now - t < 1000);
+                if (ws.rateLimitQueue.length >= 100) {
+                    this._log(`Client ${clientId} exceeded rate limit. Dropping.`);
+                    ws.close(4029, 'Rate limit exceeded');
+                    return;
+                }
+                ws.rateLimitQueue.push(now);
+
                 try {
                     const msg = JSON.parse(data.toString());
                     this._handleMessage(clientId, ws, msg);
@@ -147,7 +160,23 @@ export class RelayServer {
      * @param {object} msg - { action: 'join', roomId }
      */
     _handleJoin(clientId, msg) {
-        const { roomId } = msg;
+        const { roomId, authToken } = msg;
+
+        // Phase 4: Room Access Control
+        if (!this._rooms.hasRoom(roomId)) {
+            if (!authToken) {
+                this._log(`Rejected ${clientId} joining empty room ${roomId}: missing authToken`);
+                return;
+            }
+            this._roomAuthTokens.set(roomId, authToken);
+        } else {
+            const expectedToken = this._roomAuthTokens.get(roomId);
+            if (expectedToken && authToken !== expectedToken) {
+                this._log(`Rejected ${clientId} joining room ${roomId}: invalid authToken`);
+                return;
+            }
+        }
+
         const isNew = this._rooms.join(roomId, clientId);
 
         if (isNew) {

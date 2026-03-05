@@ -247,6 +247,10 @@ export class RichText {
      */
     apply(op) {
         if (this._appliedOps.has(op.opId)) return false;
+
+        // Phase 4: Strict Sequence Replay Protection
+        if (op.clock <= this.clock.get(op.nodeId)) return false;
+
         this._appliedOps.add(op.opId);
         this.clock.merge(VectorClock.fromJSON(op.causalDeps));
 
@@ -472,6 +476,7 @@ export class RichText {
             ]),
             blocks: [...this._blocks.entries()],
             clock: this.clock.toJSON(),
+            appliedOps: [...this._appliedOps],
         };
     }
 
@@ -483,6 +488,9 @@ export class RichText {
         );
         rt._blocks = new Map(data.blocks);
         rt.clock = VectorClock.fromJSON(data.clock);
+        if (data.appliedOps) {
+            rt._appliedOps = new Set(data.appliedOps);
+        }
         return rt;
     }
 

@@ -11,7 +11,7 @@ describe('Integration: E2E Encrypted Sync', () => {
     const PORT = 4555;
 
     beforeAll(async () => {
-        server = new RelayServer({ port: PORT, verbose: false });
+        server = new RelayServer({ port: PORT, verbose: true });
         await server.start();
     });
 
@@ -35,11 +35,13 @@ describe('Integration: E2E Encrypted Sync', () => {
         await clientB.connect(`ws://localhost:${PORT}`);
 
         // Join the same room
-        clientA.send({ action: 'join', roomId: docId });
-        clientB.send({ action: 'join', roomId: docId });
+        // Join the same room securely
+        const authToken = await KeyManager.generateRoomAuthToken(docId, documentKey);
+        clientA.send({ action: 'join', roomId: docId, authToken });
+        clientB.send({ action: 'join', roomId: docId, authToken });
 
         // Wait for join to process
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((r) => setTimeout(r, 4000));
 
         // Set up receiver on client B
         const receivedOps = [];
@@ -67,7 +69,7 @@ describe('Integration: E2E Encrypted Sync', () => {
         });
 
         // Wait for relay
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((r) => setTimeout(r, 4000));
 
         // Verify Bob received and decrypted
         expect(receivedOps.length).toBe(1);
@@ -116,8 +118,9 @@ describe('Integration: E2E Encrypted Sync', () => {
         // Connect and upload snapshot
         const client = new WebSocketTransport();
         await client.connect(`ws://localhost:${PORT}`);
-        client.send({ action: 'join', roomId: docId });
-        await new Promise((r) => setTimeout(r, 2000));
+        const authToken1 = await KeyManager.generateRoomAuthToken(docId, documentKey);
+        client.send({ action: 'join', roomId: docId, authToken: authToken1 });
+        await new Promise((r) => setTimeout(r, 4000));
 
         client.send({
             action: 'upload-snapshot',
@@ -125,12 +128,13 @@ describe('Integration: E2E Encrypted Sync', () => {
             envelope: snapshot,
         });
 
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((r) => setTimeout(r, 4000));
 
         // New client requests snapshot
         const client2 = new WebSocketTransport();
         await client2.connect(`ws://localhost:${PORT}`);
-        client2.send({ action: 'join', roomId: docId });
+        const authToken2 = await KeyManager.generateRoomAuthToken(docId, documentKey);
+        client2.send({ action: 'join', roomId: docId, authToken: authToken2 });
 
         const receivedSnapshot = await new Promise((resolve) => {
             client2.on('message', (msg) => {
@@ -160,10 +164,11 @@ describe('Integration: E2E Encrypted Sync', () => {
         await clientB.connect(`ws://localhost:${PORT}`);
         await clientC.connect(`ws://localhost:${PORT}`);
 
-        clientA.send({ action: 'join', roomId: docId });
-        clientB.send({ action: 'join', roomId: docId });
-        clientC.send({ action: 'join', roomId: docId });
-        await new Promise((r) => setTimeout(r, 2000));
+        const authToken = await KeyManager.generateRoomAuthToken(docId, documentKey);
+        clientA.send({ action: 'join', roomId: docId, authToken });
+        clientB.send({ action: 'join', roomId: docId, authToken });
+        clientC.send({ action: 'join', roomId: docId, authToken });
+        await new Promise((r) => setTimeout(r, 4000));
 
         let bReceived = 0;
         let cReceived = 0;

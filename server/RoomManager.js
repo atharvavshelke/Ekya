@@ -72,6 +72,15 @@ export class RoomManager {
     }
 
     /**
+     * Check if a room exists.
+     * @param {string} roomId
+     * @returns {boolean}
+     */
+    hasRoom(roomId) {
+        return this._rooms.has(roomId);
+    }
+
+    /**
      * Get all active room IDs.
      * @returns {string[]}
      */

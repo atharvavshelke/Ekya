@@ -119,27 +119,13 @@ export class WebSocketTransport extends EventEmitter {
     }
 
     /**
-     * Send an encrypted envelope.
+     * Send an envelope.
      * @param {object} envelope
      */
     send(envelope) {
         const message = JSON.stringify(envelope);
         if (this._connected && this._ws && this._ws.readyState === 1) {
-            this._batchBuffer.push(message);
-
-            if (!this._batchTimer) {
-                // Phase 3 Metadata Hardening: Exponential Jitter (mean 500ms)
-                const delay = -500 * Math.log(1 - Math.random());
-                this._batchTimer = setTimeout(() => {
-                    this._batchTimer = null;
-                    if (this._connected && this._ws && this._ws.readyState === 1) {
-                        for (const p of this._batchBuffer) {
-                            this._ws.send(p);
-                        }
-                    }
-                    this._batchBuffer = [];
-                }, delay);
-            }
+            this._ws.send(message);
         } else {
             // Buffer messages during disconnection
             this._sendBuffer.push(message);

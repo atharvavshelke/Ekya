@@ -129,6 +129,9 @@ export class LWWMap {
     apply(op) {
         if (this._appliedOps.has(op.opId)) return false;
 
+        // Phase 4: Strict Sequence Replay Protection
+        if (op.clock <= this.clock.get(op.nodeId)) return false;
+
         if (op.type !== 'lwwmap:set' && op.type !== 'lwwmap:delete') {
             throw new Error(`LWWMap cannot apply operation of type: ${op.type}`);
         }
@@ -205,6 +208,7 @@ export class LWWMap {
             nodeId: this.nodeId,
             entries: [...this._entries.entries()],
             clock: this.clock.toJSON(),
+            appliedOps: [...this._appliedOps],
         };
     }
 
@@ -217,6 +221,9 @@ export class LWWMap {
         const map = new LWWMap(data.id, data.nodeId);
         map._entries = new Map(data.entries);
         map.clock = VectorClock.fromJSON(data.clock);
+        if (data.appliedOps) {
+            map._appliedOps = new Set(data.appliedOps);
+        }
         return map;
     }
 

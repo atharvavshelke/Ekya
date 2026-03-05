@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import { EncryptedEnvelope } from '../crypto/EncryptedEnvelope.js';
 import { Operation } from '../core/Operation.js';
+import { KeyManager } from '../crypto/KeyManager.js';
 
 /**
  * SyncProtocol — Manages synchronization of encrypted CRDT state.
@@ -28,9 +29,17 @@ export class SyncProtocol extends EventEmitter {
         this._seenOps = new Set();
         /** @type {Array<object>} */
         this._pendingOps = [];
+        /** @type {Array<object>} */
+        this._realOpsBuffer = [];
+        this._coverTrafficActive = false;
+        this._batchTimer = null;
 
         this._transport.on('message', (msg) => this._handleMessage(msg));
-        this._transport.on('connected', () => this._onReconnect());
+        this._transport.on('connected', () => {
+            this._onReconnect();
+            this._startCoverTraffic();
+        });
+        this._transport.on('disconnected', () => this._stopCoverTraffic());
     }
 
     /**
@@ -52,13 +61,7 @@ export class SyncProtocol extends EventEmitter {
             this._keyRotation.epoch,
         );
 
-        const message = {
-            action: 'broadcast',
-            roomId: this._documentId,
-            envelope,
-        };
-
-        this._transport.send(message);
+        this._realOpsBuffer.push(envelope);
     }
 
     /**
@@ -170,10 +173,18 @@ export class SyncProtocol extends EventEmitter {
      * Handle reconnection — request latest snapshot.
      */
     _onReconnect() {
-        // Re-join the room and request current state
+        this._rejoinRoomSecurely().catch(e => this.emit('error', e));
+    }
+
+    async _rejoinRoomSecurely() {
+        // Phase 4: Room Access Control requires authToken on join.
+        const key = this._keyRotation.currentKey;
+        const authToken = key ? await KeyManager.generateRoomAuthToken(this._documentId, key) : null;
+
         this._transport.send({
             action: 'join',
             roomId: this._documentId,
+            ...(authToken && { authToken })
         });
 
         this.requestSnapshot();
@@ -183,8 +194,71 @@ export class SyncProtocol extends EventEmitter {
      * Clean up.
      */
     destroy() {
+        this._stopCoverTraffic();
         this._transport.removeAllListeners('message');
         this._transport.removeAllListeners('connected');
+        this._transport.removeAllListeners('disconnected');
         this.removeAllListeners();
+    }
+
+    /**
+     * Start the exponential cover traffic generator.
+     */
+    _startCoverTraffic() {
+        if (this._coverTrafficActive) return;
+        this._coverTrafficActive = true;
+        this._tickCoverTraffic();
+    }
+
+    /**
+     * Stop the cover traffic generator.
+     */
+    _stopCoverTraffic() {
+        this._coverTrafficActive = false;
+        if (this._batchTimer) {
+            clearTimeout(this._batchTimer);
+            this._batchTimer = null;
+        }
+    }
+
+    /**
+     * Tick the cover traffic queue using exponential jitter (mean 500ms).
+     */
+    async _tickCoverTraffic() {
+        if (!this._coverTrafficActive) return;
+
+        try {
+            if (this._realOpsBuffer.length > 0) {
+                // Send all buffered real ops (batched)
+                for (const envelope of this._realOpsBuffer) {
+                    this._transport.send({
+                        action: 'broadcast',
+                        roomId: this._documentId,
+                        envelope,
+                    });
+                }
+                this._realOpsBuffer = [];
+            } else {
+                // Send an indistinguishable dummy packet if idle
+                const key = this._keyRotation.currentKey;
+                if (key) {
+                    const dummy = await EncryptedEnvelope.encryptDummy(
+                        key,
+                        this._documentId,
+                        this._keyRotation.epoch,
+                    );
+                    this._transport.send({
+                        action: 'broadcast',
+                        roomId: this._documentId,
+                        envelope: dummy,
+                    });
+                }
+            }
+        } catch (e) {
+            this.emit('error', e);
+        }
+
+        const delay = -500 * Math.log(1 - Math.random());
+        this._batchTimer = setTimeout(() => this._tickCoverTraffic(), delay);
     }
 }
