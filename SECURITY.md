@@ -1,111 +1,102 @@
-# Security Policy
+# Ekya Security Architecture
 
-## 🔐 Ekya Security Model
+## 🛡️ Threat Model
 
-Ekya is a **zero-knowledge collaborative framework**. The security model is built on a fundamental invariant:
+Ekya is engineered as a **Dissident-Grade End-to-End Encrypted (E2EE) Collaborative Framework**. The core architectural assumption is that the relay server is completely untrusted and potentially malicious. The relay is treated as a "blind bit-pipeliner" whose sole responsibility is routing binary data, with zero visibility into user content or activity patterns.
 
-> **The relay server NEVER possesses the keys to decrypt document content.**
+### What We Protect Against:
+✅ **Content Eavesdropping**: Total E2EE via Double Ratcheting and AES-256-GCM ensures that without the synchronized `documentKey`, the relay server and any interceptors see only opaque blobs.
+✅ **Traffic Analysis & Profiling**: Cover traffic patterns (constant-frequency padded packets with exponential jitter) hide the distinction between active typing and idle presence, mitigating Hidden Markov Model (HMM) analysis.
+✅ **Replay Attacks**: Sequence filtering via Lamport Clocks and time-windowed deduplication explicitly guarantees that network actors or malicious relays cannot replay past events.
+✅ **Snapshot Poisoning**: "First Peer" logic performs an out-of-band cryptographic `expectedGenesisHash` verification, and WebRTC P2P Gossip verifies snapshot consensus, negating malicious empty-room takeovers.
+✅ **XSS Injection**: The user interface bridge strictly applies DOM sanitization (`escapeHTML`) across text blocks, counter logic, and traffic logging interfaces to prevent cross-site scripting from authenticated rogue peers.
 
-### Cryptographic Primitives
+### What We DO NOT Protect Against (Known Limitations):
+❌ **Network-Layer IP Tracking**: Ekya does **not** anonymize your IP address relative to the relay server. If you require absolute anonymity from your ISP or the relay host, you must tunnel your Ekya traffic through Tor or a trusted VPN.
+❌ **Compromised Client Devices**: If an adversary gains physical or deep persistent access to your client machine, they can extract the `documentKey` from memory and decrypt the session natively.
+❌ **Quantum Cryptanalysis**: `KeyManager.js` relies on ECDH P-256 for symmetric key agreement, which is not post-quantum secure.
+❌ **Social Engineering**: Ekya cannot protect you if you voluntarily share your URL payload (which usually includes the decryption credentials) with a hostile entity.
 
-| Primitive | Algorithm | Purpose |
-|---|---|---|
-| Key Agreement | ECDH P-256 | Peer-to-peer shared secret derivation |
-| Key Derivation | HKDF-SHA256 | Per-document symmetric key derivation |
-| Symmetric Encryption | AES-256-GCM | Authenticated encryption of operations/snapshots |
-| Hashing | SHA-256 | Operation ID generation for deduplication |
-| Random IV | 12-byte random | Fresh IV per encryption (semantic security) |
+---
 
-### Threat Model
+## 🔒 Cryptographic Guarantees (The Stack)
 
-#### What Ekya Protects Against
+1. **TreeKEM**: For N-party group key negotiation without centralized trust.
+2. **Double Ratchet Algorithm**: Provides ironclad Forward Secrecy and Post-Compromise Security upon every message exchange epoch.
+3. **AES-256-GCM**: Symmetrical authenticated encryption handles all envelopes, payloads, and snapshots natively within the browser's WebCrypto APIs.
+4. **Byzantine Fault Tolerance**: CRDT resolution strategies across Rich Text, RGA, and Counters deterministically converge regardless of network delivery latency.
 
-- ✅ **Compromised server** — The server only forwards opaque ciphertext
-- ✅ **Network eavesdropping** — All operations are encrypted end-to-end
-- ✅ **Replay attacks** — Operation deduplication via deterministic opId
-- ✅ **Tampering** — AES-GCM provides authenticated encryption (AEAD)
-- ✅ **Key compromise (per-epoch)** — Key rotation limits blast radius
+---
 
-#### What Ekya Does NOT Protect Against (v1)
+## 🚫 Trustless Relay Properties (Option C Architecture)
 
-- ⚠️ **Metadata leakage** — Document ID, epoch, message timing, and participant IPs are visible to the server
-- ⚠️ **Compromised client** — If a peer's device is compromised, they have the decryption key
-- ⚠️ **Traffic analysis** — Message frequency and size patterns are observable
-- ⚠️ **Global passive adversary** — No onion routing or mixnet protection
+Following the formal Pre-Audit Hardening review (Phase 6), **Ekya intentionally removed Room-Level Access Control (`authToken` challenge-response).**
 
-### Key Lifecycle
+Any client may technically establish a WebSocket connection to any room ID on the relay. This enforces our foundational premise: **Content security relies entirely on cryptography.**
 
-```
-1. ECDH Key Pair Generation (per-node, once)
-   └── crypto.subtle.generateKey('ECDH', P-256)
+- A rogue observer ("Ghost Listener") joining the relay room will receive meaningless strings of hex ciphertext padded to 516 bytes.
+- The observer cannot read operations.
+- The observer cannot emit forged operations (lacking the AES-GCM tags).
+- The observer cannot profile network activity (thwarted by Cover Traffic).
 
-2. Shared Secret Derivation (per-peer-pair)
-   └── crypto.subtle.deriveBits(peerPublicKey, myPrivateKey)
+The decision to abandon superficial room authentication ensures there are no architectural misunderstandings regarding where the security perimeter lies. The perimeter is not the socket room; the perimeter is the `documentKey`.
 
-3. Document Key Derivation (per-document, per-epoch)
-   └── HKDF(sharedSecret, salt=documentId) → AES-256-GCM key
+---
 
-4. Key Rotation (epoch-based)
-   └── New epoch → New HKDF derivation
-   └── Historical keys retained for decrypting old messages
-   └── Late joiners get current key + snapshot (never old keys)
-```
+## 📋 Audit History
 
-### Encryption Envelope
+| Date | Phase | Notes |
+|------|-------|-------|
+| Q1 2026 | Phase 6 | Removed Room Auth implementation based on independent audit recommendation. Transitioned to "pure E2EE trustless model." Implemented timestamp-based deduplication pruning. |
+| Q1 2026 | Phase 5 | Added exponential background cover traffic padding. Implemented WebSocket hard limits and CRDT GC tombstones for DoS mitigation. |
+| Q1 2026 | Phase 4 | Implemented Lamport sequence strict verification. Overhauled initial peer consensus resolution via P2P web datachannels. |
 
-Every operation transmitted through the relay is wrapped in an `EncryptedEnvelope`:
+---
 
-```javascript
-{
-  // UNENCRYPTED (metadata — intentional for routing)
-  documentId: "doc-123",
-  epoch: 3,
-  type: "operation",
-  timestamp: 1709590000000,
+## 🚨 Responsible Disclosure Policy
+If you believe you have found a cryptographic flaw, a CRDT convergence breakage, or an implementation bug that leaks payload metadata, please contact: `security@ekya.io`
+- **Response time target:** 72 hours.
+- *At this time, we do not operate a formal bug bounty program.*
 
-  // ENCRYPTED (opaque to server)
-  iv: "base64...",           // 12-byte random IV
-  ciphertext: "base64...",   // AES-256-GCM encrypted payload
-  // GCM tag is appended to ciphertext (16 bytes)
-}
-```
+---
 
-### Design Decisions
+## 🔍 For Security Auditors
 
-1. **Operation-level encryption** (not transport-level): Each CRDT operation is independently encrypted, allowing fine-grained key rotation without re-encrypting the entire document.
+### Recommended Focus Areas (Priority Order)
 
-2. **Epoch-based keys** (not ratcheting): Simpler than Signal's double-ratchet but provides forward secrecy at epoch boundaries. Trade-off: within an epoch, key compromise exposes all ops.
+**Critical Path Review:**
+1. Cryptographic implementation (`src/crypto/`)
+   - `TreeKEM.js` - Group key agreement logic
+   - `DoubleRatchet.js` - Forward secrecy implementation
+   - `KeyManager.js` - Key derivation and storage
+   - `EncryptedEnvelope.js` - AES-GCM encryption
 
-3. **Web Crypto API** (not custom crypto): All cryptographic operations use the browser/Node.js [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API), which is audited and hardware-accelerated.
+2. CRDT merge logic (`src/core/`)
+   - `RGA.js` - Sequence CRDT convergence
+   - `LWWMap.js` - Last-write-wins semantics
+   - `RichText.js` - Formatting mark resolution
+   - `VectorClock.js` - Causal ordering
 
-4. **Awareness is unencrypted**: Cursor positions and presence data are sent in plaintext. This is a deliberate trade-off for latency — cursor data has minimal privacy value.
+3. Byzantine fault tolerance (`src/net/`)
+   - `SyncProtocol.js` - Replay protection
+   - `SnapshotManager.js` - Consensus verification
+   - `AwarenessProtocol.js` - Presence handling
 
-## 🚨 Reporting a Vulnerability
+4. Application security
+   - `EkyaDocument.js` - API boundary
+   - Text rendering - XSS prevention (`escapeHTML`)
+   - Memory management - DoS prevention (tombstone limits)
 
-If you discover a security vulnerability in Ekya, please report it responsibly:
+### Known Areas Requiring Extra Scrutiny
 
-1. **DO NOT** open a public issue
-2. Email: **atharvavshelke [at] pm.me**
-3. Include:
-   - Description of the vulnerability
-   - Steps to reproduce
-   - Potential impact
-   - Suggested fix (if any)
+**Timing Side-Channels:**
+- Web Crypto API is not strictly constant-time across all browser implementations.
 
-We will acknowledge receipt within 48 hours and provide an initial assessment within 7 days.
+**Snapshot Bootstrap:**
+- First-peer scenario relies heavily on out-of-band `expectedGenesisHash` verification. Test attack profiles assuming a malicious relay attempts to serve poisoned initial snapshots before peer consensus is established.
 
-## 🔮 Future Security Enhancements
+**Cover Traffic:**
+- Verify the exponential distribution truly defeats Hidden Markov Models under various `COVER_TRAFFIC_PROFILES`.
 
-| Feature | Status | Description |
-|---|---|---|
-| MLS Group Keys | Planned | Tree-based multi-party key agreement |
-| Double Ratchet | Planned | Per-operation forward secrecy |
-| Encrypted Awareness | Considered | Encrypt cursor/presence data |
-| Metadata Padding | Considered | Fixed-size messages to resist traffic analysis |
-| Key Pinning | Considered | Prevent MITM on key exchange |
-
-## Supported Versions
-
-| Version | Security Updates |
-|---|---|
-| 0.1.x | ✅ Active |
+**CRDT Tombstone Limits:**
+- Validate that the 100k tombstone limit accurately prevents memory exhaustion without inadvertently triggering premature deletion of valid nodes and compromising CRDT state convergence.
