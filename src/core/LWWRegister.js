@@ -22,8 +22,8 @@ export class LWWRegister {
         this._timestamp = 0;
         this._writerNodeId = '';
         this.clock = new VectorClock();
-        /** @type {Set<string>} */
-        this._appliedOps = new Set();
+        /** @type {Map<string, number>} opId -> timestamp */
+        this._appliedOps = new Map();
     }
 
     /**
@@ -46,7 +46,7 @@ export class LWWRegister {
             data: { value, timestamp: this._timestamp },
         });
 
-        this._appliedOps.add(op.opId);
+        this._appliedOps.set(op.opId, Date.now());
         return op;
     }
 
@@ -73,7 +73,7 @@ export class LWWRegister {
             throw new Error(`LWWRegister cannot apply operation of type: ${op.type}`);
         }
 
-        this._appliedOps.add(op.opId);
+        this._appliedOps.set(op.opId, Date.now());
         this.clock.merge(VectorClock.fromJSON(op.causalDeps));
 
         // LWW resolution: highest timestamp wins; tie-break by nodeId (lexicographic)
@@ -127,7 +127,7 @@ export class LWWRegister {
             timestamp: this._timestamp,
             writerNodeId: this._writerNodeId,
             clock: this.clock.toJSON(),
-            appliedOps: [...this._appliedOps],
+            appliedOps: [...this._appliedOps.entries()],
         };
     }
 
@@ -143,7 +143,7 @@ export class LWWRegister {
         reg._writerNodeId = data.writerNodeId;
         reg.clock = VectorClock.fromJSON(data.clock);
         if (data.appliedOps) {
-            reg._appliedOps = new Set(data.appliedOps);
+            reg._appliedOps = new Map(data.appliedOps);
         }
         return reg;
     }

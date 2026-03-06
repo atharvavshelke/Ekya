@@ -31,8 +31,6 @@ export class RelayServer {
         this._wss = null;
         this._rooms = new RoomManager();
         this._snapshots = new SnapshotStore();
-        /** @type {Map<string, string>} roomId → expected authToken */
-        this._roomAuthTokens = new Map();
         /** @type {Map<string, import('ws').WebSocket>} clientId → ws */
         this._clients = new Map();
 
@@ -160,28 +158,18 @@ export class RelayServer {
      * @param {object} msg - { action: 'join', roomId }
      */
     _handleJoin(clientId, msg) {
-        const { roomId, authToken } = msg;
+        const { roomId } = msg;
 
-        // Phase 4: Room Access Control
-        if (!this._rooms.hasRoom(roomId)) {
-            if (!authToken) {
-                this._log(`Rejected ${clientId} joining empty room ${roomId}: missing authToken`);
-                return;
-            }
-            this._roomAuthTokens.set(roomId, authToken);
-        } else {
-            const expectedToken = this._roomAuthTokens.get(roomId);
-            if (expectedToken && authToken !== expectedToken) {
-                this._log(`Rejected ${clientId} joining room ${roomId}: invalid authToken`);
-                return;
-            }
-        }
+        // Trustless Model (Option C): Any client can join any room.
+        // E2EE completely protects payload content. Ghost listeners receive opaque noise.
 
-        const isNew = this._rooms.join(roomId, clientId);
+        const isNew = this._rooms.join(roomId, clientId); // Assuming RoomManager.join still returns isNew
+        this._log(`Client ${clientId} joined room ${roomId}`);
+
+        // Send existing snapshots
+        this._handleRequestSnapshot(clientId, { roomId }); // Re-using existing handler
 
         if (isNew) {
-            this._log(`${clientId} joined room ${roomId}`);
-
             // Notify existing room members
             this._broadcastToRoom(roomId, clientId, {
                 action: 'peer-joined',

@@ -118,15 +118,10 @@ export class EkyaProvider extends EventEmitter {
         await this._transport.connect(this._signalingUrl);
         this._connected = true;
 
-        // Phase 4: Generate room auth token
-        const currentKey = this._keyRotation.getCurrentKey();
-        const authToken = await KeyManager.generateRoomAuthToken(document.id, currentKey);
-
         // Join the room securely
         this._transport.send({
             action: 'join',
             roomId: document.id,
-            authToken,
         });
 
         // Request latest snapshot

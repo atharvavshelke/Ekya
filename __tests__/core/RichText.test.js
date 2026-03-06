@@ -166,8 +166,8 @@ describe('RichText — Block-based Rich Text CRDT', () => {
         doc.applyFormat(0, 3, 'bold', true);
 
         const stats = doc.stats();
-        expect(stats.textLength).toBe(5);
-        expect(stats.formattedChars).toBe(3);
+        expect(stats.text.total).toBe(5);
+        expect(stats.marks).toBe(3);
         expect(stats.appliedOps).toBeGreaterThan(0);
     });
 

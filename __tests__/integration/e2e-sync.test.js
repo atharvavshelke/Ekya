@@ -35,10 +35,8 @@ describe('Integration: E2E Encrypted Sync', () => {
         await clientB.connect(`ws://localhost:${PORT}`);
 
         // Join the same room
-        // Join the same room securely
-        const authToken = await KeyManager.generateRoomAuthToken(docId, documentKey);
-        clientA.send({ action: 'join', roomId: docId, authToken });
-        clientB.send({ action: 'join', roomId: docId, authToken });
+        clientA.send({ action: 'join', roomId: docId });
+        clientB.send({ action: 'join', roomId: docId });
 
         // Wait for join to process
         await new Promise((r) => setTimeout(r, 4000));
@@ -118,8 +116,7 @@ describe('Integration: E2E Encrypted Sync', () => {
         // Connect and upload snapshot
         const client = new WebSocketTransport();
         await client.connect(`ws://localhost:${PORT}`);
-        const authToken1 = await KeyManager.generateRoomAuthToken(docId, documentKey);
-        client.send({ action: 'join', roomId: docId, authToken: authToken1 });
+        client.send({ action: 'join', roomId: docId });
         await new Promise((r) => setTimeout(r, 4000));
 
         client.send({
@@ -133,8 +130,7 @@ describe('Integration: E2E Encrypted Sync', () => {
         // New client requests snapshot
         const client2 = new WebSocketTransport();
         await client2.connect(`ws://localhost:${PORT}`);
-        const authToken2 = await KeyManager.generateRoomAuthToken(docId, documentKey);
-        client2.send({ action: 'join', roomId: docId, authToken: authToken2 });
+        client2.send({ action: 'join', roomId: docId });
 
         const receivedSnapshot = await new Promise((resolve) => {
             client2.on('message', (msg) => {
@@ -164,10 +160,9 @@ describe('Integration: E2E Encrypted Sync', () => {
         await clientB.connect(`ws://localhost:${PORT}`);
         await clientC.connect(`ws://localhost:${PORT}`);
 
-        const authToken = await KeyManager.generateRoomAuthToken(docId, documentKey);
-        clientA.send({ action: 'join', roomId: docId, authToken });
-        clientB.send({ action: 'join', roomId: docId, authToken });
-        clientC.send({ action: 'join', roomId: docId, authToken });
+        clientA.send({ action: 'join', roomId: docId });
+        clientB.send({ action: 'join', roomId: docId });
+        clientC.send({ action: 'join', roomId: docId });
         await new Promise((r) => setTimeout(r, 4000));
 
         let bReceived = 0;

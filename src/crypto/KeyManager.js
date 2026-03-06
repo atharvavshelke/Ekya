@@ -80,25 +80,7 @@ export class KeyManager {
         ]);
     }
 
-    /**
-     * Generate a deterministic room authentication token from the document key.
-     * This proves possession of the documentKey to the relay without revealing the key.
-     * @param {string} roomId
-     * @param {CryptoKey} documentKey
-     * @returns {Promise<string>} Hex-encoded SHA-256 hash
-     */
-    static async generateRoomAuthToken(roomId, documentKey) {
-        const rawKey = await crypto.subtle.exportKey('raw', documentKey);
-        const encoder = new TextEncoder();
-        const roomIdBuf = encoder.encode(roomId);
 
-        const combined = new Uint8Array(rawKey.byteLength + roomIdBuf.byteLength);
-        combined.set(new Uint8Array(rawKey), 0);
-        combined.set(roomIdBuf, rawKey.byteLength);
-
-        const hash = await crypto.subtle.digest('SHA-256', combined);
-        return Buffer.from(hash).toString('hex');
-    }
 
     /**
      * Export a public key to raw bytes.

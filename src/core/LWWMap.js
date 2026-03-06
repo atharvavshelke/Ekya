@@ -25,8 +25,8 @@ export class LWWMap {
          */
         this._entries = new Map();
         this.clock = new VectorClock();
-        /** @type {Set<string>} */
-        this._appliedOps = new Set();
+        /** @type {Map<string, number>} opId -> timestamp */
+        this._appliedOps = new Map();
     }
 
     /**
@@ -55,7 +55,7 @@ export class LWWMap {
             data: { key, value, timestamp },
         });
 
-        this._appliedOps.add(op.opId);
+        this._appliedOps.set(op.opId, Date.now());
         return op;
     }
 
@@ -84,7 +84,7 @@ export class LWWMap {
             data: { key, timestamp },
         });
 
-        this._appliedOps.add(op.opId);
+        this._appliedOps.set(op.opId, Date.now());
         return op;
     }
 
@@ -136,7 +136,7 @@ export class LWWMap {
             throw new Error(`LWWMap cannot apply operation of type: ${op.type}`);
         }
 
-        this._appliedOps.add(op.opId);
+        this._appliedOps.set(op.opId, Date.now());
         this.clock.merge(VectorClock.fromJSON(op.causalDeps));
 
         const key = op.data.key;
@@ -208,7 +208,7 @@ export class LWWMap {
             nodeId: this.nodeId,
             entries: [...this._entries.entries()],
             clock: this.clock.toJSON(),
-            appliedOps: [...this._appliedOps],
+            appliedOps: [...this._appliedOps.entries()],
         };
     }
 
@@ -222,7 +222,7 @@ export class LWWMap {
         map._entries = new Map(data.entries);
         map.clock = VectorClock.fromJSON(data.clock);
         if (data.appliedOps) {
-            map._appliedOps = new Set(data.appliedOps);
+            map._appliedOps = new Map(data.appliedOps);
         }
         return map;
     }
@@ -266,18 +266,26 @@ export class LWWMap {
     }
 
     /**
-     * Prune the applied-ops deduplication set.
-     * @param {number} [maxSize=10000]
-     * @returns {number} Number of op IDs pruned
+     * Prune the applied-ops deduplication cache.
+     * Prevents snapshot bloat by removing opIds older than `maxAgeMs`.
+     * Safety is maintained via the Lamport clock (sequence filtering).
+     *
+     * @param {number} [maxAgeMs=604800000] - Default 7 days
+     * @returns {number}
      */
-    pruneOpHistory(maxSize = 10000) {
-        if (this._appliedOps.size <= maxSize) return 0;
-        const arr = [...this._appliedOps];
-        const pruneCount = arr.length - maxSize;
-        for (let i = 0; i < pruneCount; i++) {
-            this._appliedOps.delete(arr[i]);
+    pruneOpHistory(maxAgeMs = 7 * 24 * 60 * 60 * 1000) {
+        if (this._appliedOps.size === 0) return 0;
+
+        const now = Date.now();
+        let pruneCount = 0;
+
+        for (const [opId, timestamp] of this._appliedOps.entries()) {
+            if (now - timestamp > maxAgeMs) {
+                this._appliedOps.delete(opId);
+                pruneCount++;
+            }
         }
+
         return pruneCount;
     }
 }
-

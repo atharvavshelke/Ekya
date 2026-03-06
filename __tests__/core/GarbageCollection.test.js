@@ -80,7 +80,17 @@ describe('Garbage Collection', () => {
             }
             expect(rga.stats().appliedOps).toBe(20);
 
-            const pruned = rga.pruneOpHistory(10);
+            // Simulate 10 ops being older than 1 hour
+            let count = 0;
+            const oneHourMs = 3600000;
+            for (const opId of rga._appliedOps.keys()) {
+                if (count < 10) {
+                    rga._appliedOps.set(opId, Date.now() - 7200000); // 2 hours old
+                }
+                count++;
+            }
+
+            const pruned = rga.pruneOpHistory(oneHourMs);
             expect(pruned).toBe(10);
             expect(rga.stats().appliedOps).toBe(10);
         });
@@ -89,7 +99,8 @@ describe('Garbage Collection', () => {
             const rga = new RGA('text1', 'nodeA');
             rga.insert(0, 'A');
 
-            const pruned = rga.pruneOpHistory(100);
+            // Limit is 1 hour, entry is fresh
+            const pruned = rga.pruneOpHistory(3600000);
             expect(pruned).toBe(0);
         });
     });
@@ -114,7 +125,17 @@ describe('Garbage Collection', () => {
             }
             expect(c.stats().appliedOps).toBe(50);
 
-            const pruned = c.pruneOpHistory(20);
+            // Simulate 30 ops being older than 1 hour
+            let count = 0;
+            const oneHourMs = 3600000;
+            for (const opId of c._appliedOps.keys()) {
+                if (count < 30) {
+                    c._appliedOps.set(opId, Date.now() - 7200000);
+                }
+                count++;
+            }
+
+            const pruned = c.pruneOpHistory(oneHourMs);
             expect(pruned).toBe(30);
             expect(c.stats().appliedOps).toBe(20);
             // Value is still correct (pruning ops doesn't change state)
@@ -167,7 +188,17 @@ describe('Garbage Collection', () => {
             }
             expect(map.stats().appliedOps).toBe(30);
 
-            const pruned = map.pruneOpHistory(10);
+            // Simulate 20 ops being older than 1 hour
+            let count = 0;
+            const oneHourMs = 3600000;
+            for (const opId of map._appliedOps.keys()) {
+                if (count < 20) {
+                    map._appliedOps.set(opId, Date.now() - 7200000);
+                }
+                count++;
+            }
+
+            const pruned = map.pruneOpHistory(oneHourMs);
             expect(pruned).toBe(20);
             expect(map.stats().appliedOps).toBe(10);
         });

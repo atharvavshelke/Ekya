@@ -32,8 +32,8 @@ export class RGA {
          */
         this._elements = [];
         this.clock = new VectorClock();
-        /** @type {Set<string>} */
-        this._appliedOps = new Set();
+        /** @type {Map<string, number>} opId -> timestamp */
+        this._appliedOps = new Map();
     }
 
     /**
@@ -118,7 +118,7 @@ export class RGA {
             },
         });
 
-        this._appliedOps.add(op.opId);
+        this._appliedOps.set(op.opId, Date.now());
         return op;
     }
 
@@ -160,7 +160,7 @@ export class RGA {
             },
         });
 
-        this._appliedOps.add(op.opId);
+        this._appliedOps.set(op.opId, Date.now());
         return op;
     }
 
@@ -254,7 +254,7 @@ export class RGA {
         // Phase 4: Strict Sequence Replay Protection
         if (op.clock <= this.clock.get(op.nodeId)) return false;
 
-        this._appliedOps.add(op.opId);
+        this._appliedOps.set(op.opId, Date.now());
         this.clock.merge(VectorClock.fromJSON(op.causalDeps));
 
         if (op.type === 'rga:insert') {
@@ -346,7 +346,7 @@ export class RGA {
             seq: this._seq,
             elements: this._elements.map((e) => ({ ...e })),
             clock: this.clock.toJSON(),
-            appliedOps: [...this._appliedOps],
+            appliedOps: [...this._appliedOps.entries()],
         };
     }
 
@@ -361,7 +361,7 @@ export class RGA {
         rga._elements = data.elements.map((e) => ({ ...e }));
         rga.clock = VectorClock.fromJSON(data.clock);
         if (data.appliedOps) {
-            rga._appliedOps = new Set(data.appliedOps);
+            rga._appliedOps = new Map(data.appliedOps);
         }
         return rga;
     }
@@ -450,22 +450,26 @@ export class RGA {
     }
 
     /**
-     * Prune the applied-ops deduplication set.
-     * After a snapshot has been distributed and all peers are synced,
-     * the op history can be safely reduced.
+     * Prune the applied-ops deduplication cache.
+     * Prevents snapshot bloat by removing opIds older than `maxAgeMs`.
+     * Safety is maintained via the Lamport clock (sequence filtering), which is permanent.
      *
-     * @param {number} [maxSize=10000] - Maximum number of op IDs to retain
+     * @param {number} [maxAgeMs=604800000] - Default 7 days
      * @returns {number} Number of op IDs pruned
      */
-    pruneOpHistory(maxSize = 10000) {
-        if (this._appliedOps.size <= maxSize) return 0;
+    pruneOpHistory(maxAgeMs = 7 * 24 * 60 * 60 * 1000) {
+        if (this._appliedOps.size === 0) return 0;
 
-        const arr = [...this._appliedOps];
-        const pruneCount = arr.length - maxSize;
-        // Remove oldest entries (Set preserves insertion order)
-        for (let i = 0; i < pruneCount; i++) {
-            this._appliedOps.delete(arr[i]);
+        const now = Date.now();
+        let pruneCount = 0;
+
+        for (const [opId, timestamp] of this._appliedOps.entries()) {
+            if (now - timestamp > maxAgeMs) {
+                this._appliedOps.delete(opId);
+                pruneCount++;
+            }
         }
+
         return pruneCount;
     }
 }

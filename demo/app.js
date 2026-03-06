@@ -72,13 +72,8 @@
             connected = true;
             updateStatus('connected');
 
-            // Phase 4: Room Access Control
-            const authText = await BrowserCrypto.generateRoomAuthToken(DOC_ID_TEXT, documentKey);
-            const authCounter = await BrowserCrypto.generateRoomAuthToken(DOC_ID_COUNTER, documentKey);
-
-            // Join both rooms securely
-            send({ action: 'join', roomId: DOC_ID_TEXT, authToken: authText });
-            send({ action: 'join', roomId: DOC_ID_COUNTER, authToken: authCounter });
+            send({ action: 'join', roomId: DOC_ID_TEXT });
+            send({ action: 'join', roomId: DOC_ID_COUNTER });
 
             // Request snapshots from relay
             send({ action: 'request-snapshot', roomId: DOC_ID_TEXT });
@@ -235,12 +230,25 @@
                     sendToPeer(peerId, { action: 'request-clock', roomId, senderId: NODE_ID });
                 }
             } else if (pState) {
-                // Phase 5: Bootstrap Verification
+                // Phase 6: Strict Bootstrap Verification
                 const expectedHash = new URLSearchParams(window.location.search).get('genesisHash');
                 if (expectedHash) {
-                    // In a real app we'd hash the serialized pState here and compare
                     console.log(`[Consensus] Verifying snapshot against expectedGenesisHash...`);
-                    // Mock verification strictly for the demo UI
+
+                    const encoder = new TextEncoder();
+                    // Deterministic JSON stringify needed for hashing state in a real app,
+                    // but for demo, standard stringify works assuming consistent key ordering
+                    const data = encoder.encode(JSON.stringify(pState));
+                    const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
+                    const hashArray = Array.from(new Uint8Array(hashBuffer));
+                    const actualHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+                    if (actualHash !== expectedHash) {
+                        console.error(`[SECURITY FATAL] Genesis Hash mismatch! Expected ${expectedHash}, got ${actualHash}`);
+                        alert('SECURITY ALERT: The room snapshot has been poisoned or tampered with. Connection aborted.');
+                        return; // Reject state and halt
+                    }
+                    console.log(`[Consensus] Snapshot securely verified against Genesis Hash.`);
                 } else {
                     console.warn(`[Consensus Warning] First peer in room. Trusting relay snapshot conditionally.`);
                 }
@@ -381,18 +389,28 @@
         uploadSnapshot(counterCRDT, DOC_ID_COUNTER);
     };
 
+    function escapeHTML(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
     function updateCounterUI() {
         counterValue.textContent = counterCRDT.value();
 
         // Show per-node breakdown
         const entries = Object.entries(counterCRDT.counts);
         if (entries.length > 0) {
-            counterNodes.innerHTML = entries.map(([nid, val]) => `
+            counterNodes.innerHTML = entries.map(([nid, val]) => {
+                const safeId = escapeHTML(nid === NODE_ID ? 'You' : nid.substring(0, 10));
+                return `
         <div class="counter-node">
-          <span class="counter-node-id">${nid === NODE_ID ? 'You' : nid.substring(0, 10)}</span>
-          <span class="counter-node-value">${val}</span>
+          <span class="counter-node-id">${safeId}</span>
+          <span class="counter-node-value">${Number(val)}</span>
         </div>
-      `).join('');
+      `}).join('');
         }
     }
 
@@ -402,14 +420,14 @@
         if (empty) empty.remove();
 
         const time = new Date().toLocaleTimeString();
-        const cipher = envelope.ciphertext.substring(0, 60);
+        const safeCipher = escapeHTML(envelope.ciphertext.substring(0, 60));
 
         const entry = document.createElement('div');
         entry.className = 'traffic-entry';
         entry.innerHTML = `
       <span class="traffic-time">${time}</span>
-      <span class="traffic-direction"> ↑ SEND </span>
-      <span class="traffic-cipher">${cipher}…</span>
+      <span class="traffic-direction"> ${envelope._direction === 'SEND' ? '↑ SEND' : '↓ RECV'} </span>
+      <span class="traffic-cipher">${safeCipher}…</span>
     `;
 
         trafficLog.prepend(entry);

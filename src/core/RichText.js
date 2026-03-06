@@ -55,8 +55,8 @@ export class RichText {
         this.id = id;
         this.nodeId = nodeId;
         this.clock = new VectorClock();
-        /** @type {Set<string>} */
-        this._appliedOps = new Set();
+        /** @type {Map<string, number>} opId -> timestamp */
+        this._appliedOps = new Map();
 
         // Text layer (character-level RGA)
         this._rga = new RGA(`${id}:text`, nodeId);
@@ -132,7 +132,7 @@ export class RichText {
                 causalDeps: this.clock.toJSON(),
                 data: { rgaOp: rgaOp.toJSON() },
             });
-            this._appliedOps.add(op.opId);
+            this._appliedOps.set(op.opId, Date.now());
             ops.push(op);
         }
         return ops;
@@ -158,7 +158,7 @@ export class RichText {
                 causalDeps: this.clock.toJSON(),
                 data: { rgaOp: rgaOp.toJSON() },
             });
-            this._appliedOps.add(op.opId);
+            this._appliedOps.set(op.opId, Date.now());
             ops.push(op);
         }
         return ops;
@@ -207,7 +207,7 @@ export class RichText {
             data: { start, end, startElemId, endElemId, mark, value, timestamp },
         });
 
-        this._appliedOps.add(op.opId);
+        this._appliedOps.set(op.opId, Date.now());
         return op;
     }
 
@@ -236,7 +236,7 @@ export class RichText {
             data: { blockIndex, blockType: type, metadata, timestamp },
         });
 
-        this._appliedOps.add(op.opId);
+        this._appliedOps.set(op.opId, Date.now());
         return op;
     }
 
@@ -251,7 +251,7 @@ export class RichText {
         // Phase 4: Strict Sequence Replay Protection
         if (op.clock <= this.clock.get(op.nodeId)) return false;
 
-        this._appliedOps.add(op.opId);
+        this._appliedOps.set(op.opId, Date.now());
         this.clock.merge(VectorClock.fromJSON(op.causalDeps));
 
         switch (op.type) {
@@ -476,7 +476,7 @@ export class RichText {
             ]),
             blocks: [...this._blocks.entries()],
             clock: this.clock.toJSON(),
-            appliedOps: [...this._appliedOps],
+            appliedOps: [...this._appliedOps.entries()],
         };
     }
 
@@ -489,7 +489,7 @@ export class RichText {
         rt._blocks = new Map(data.blocks);
         rt.clock = VectorClock.fromJSON(data.clock);
         if (data.appliedOps) {
-            rt._appliedOps = new Set(data.appliedOps);
+            rt._appliedOps = new Map(data.appliedOps);
         }
         return rt;
     }
@@ -499,12 +499,39 @@ export class RichText {
      * @returns {object}
      */
     stats() {
+        const textStats = this._rga.stats();
         return {
-            textLength: this.length,
-            rgaStats: this._rga.stats(),
-            formattedChars: this._marks.size,
+            text: textStats,
+            marks: this._marks.size,
             blocks: this._blocks.size,
             appliedOps: this._appliedOps.size,
         };
+    }
+
+    /**
+     * Prune the applied-ops deduplication cache.
+     * Prevents snapshot bloat by removing opIds older than `maxAgeMs`.
+     * Safety is maintained via the Lamport clock (sequence filtering).
+     *
+     * @param {number} [maxAgeMs=604800000] - Default 7 days
+     * @returns {number}
+     */
+    pruneOpHistory(maxAgeMs = 7 * 24 * 60 * 60 * 1000) {
+        if (this._appliedOps.size === 0) return 0;
+
+        // Prune the internal RGA as well
+        this._rga.pruneOpHistory(maxAgeMs);
+
+        const now = Date.now();
+        let pruneCount = 0;
+
+        for (const [opId, timestamp] of this._appliedOps.entries()) {
+            if (now - timestamp > maxAgeMs) {
+                this._appliedOps.delete(opId);
+                pruneCount++;
+            }
+        }
+
+        return pruneCount;
     }
 }

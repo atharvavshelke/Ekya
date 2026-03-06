@@ -141,7 +141,17 @@ describe('PNCounter', () => {
         }
         expect(c.stats().appliedOps).toBe(20);
 
-        const pruned = c.pruneOpHistory(5);
+        // Simulate 15 ops being older than 1 hour
+        let count = 0;
+        const oneHourMs = 60 * 60 * 1000;
+        for (const opId of c._appliedOps.keys()) {
+            if (count < 15) {
+                c._appliedOps.set(opId, Date.now() - (2 * oneHourMs));
+            }
+            count++;
+        }
+
+        const pruned = c.pruneOpHistory(oneHourMs);
         expect(pruned).toBe(15);
         expect(c.stats().appliedOps).toBe(5);
         expect(c.value()).toBe(20); // value unchanged

@@ -31,8 +31,8 @@ export class PNCounter {
         /** @type {Record<string, number>} decrements per node */
         this.n = {};
         this.clock = new VectorClock();
-        /** @type {Set<string>} */
-        this._appliedOps = new Set();
+        /** @type {Map<string, number>} opId -> timestamp */
+        this._appliedOps = new Map();
     }
 
     /**
@@ -55,7 +55,7 @@ export class PNCounter {
             data: { amount },
         });
 
-        this._appliedOps.add(op.opId);
+        this._appliedOps.set(op.opId, Date.now());
         return op;
     }
 
@@ -79,7 +79,7 @@ export class PNCounter {
             data: { amount },
         });
 
-        this._appliedOps.add(op.opId);
+        this._appliedOps.set(op.opId, Date.now());
         return op;
     }
 
@@ -103,7 +103,7 @@ export class PNCounter {
         }
 
         this.clock.merge(VectorClock.fromJSON(op.causalDeps));
-        this._appliedOps.add(op.opId);
+        this._appliedOps.set(op.opId, Date.now());
         return true;
     }
 
@@ -161,7 +161,7 @@ export class PNCounter {
             p: { ...this.p },
             n: { ...this.n },
             clock: this.clock.toJSON(),
-            appliedOps: [...this._appliedOps],
+            appliedOps: [...this._appliedOps.entries()],
         };
     }
 
@@ -176,7 +176,7 @@ export class PNCounter {
         counter.n = { ...data.n };
         counter.clock = VectorClock.fromJSON(data.clock);
         if (data.appliedOps) {
-            counter._appliedOps = new Set(data.appliedOps);
+            counter._appliedOps = new Map(data.appliedOps);
         }
         return counter;
     }
@@ -197,17 +197,26 @@ export class PNCounter {
     }
 
     /**
-     * Prune the applied-ops deduplication set.
-     * @param {number} [maxSize=10000]
+     * Prune the applied-ops deduplication cache.
+     * Prevents snapshot bloat by removing opIds older than `maxAgeMs`.
+     * Safety is maintained via the Lamport clock (sequence filtering).
+     *
+     * @param {number} [maxAgeMs=604800000] - Default 7 days
      * @returns {number}
      */
-    pruneOpHistory(maxSize = 10000) {
-        if (this._appliedOps.size <= maxSize) return 0;
-        const arr = [...this._appliedOps];
-        const pruneCount = arr.length - maxSize;
-        for (let i = 0; i < pruneCount; i++) {
-            this._appliedOps.delete(arr[i]);
+    pruneOpHistory(maxAgeMs = 7 * 24 * 60 * 60 * 1000) {
+        if (this._appliedOps.size === 0) return 0;
+
+        const now = Date.now();
+        let pruneCount = 0;
+
+        for (const [opId, timestamp] of this._appliedOps.entries()) {
+            if (now - timestamp > maxAgeMs) {
+                this._appliedOps.delete(opId);
+                pruneCount++;
+            }
         }
+
         return pruneCount;
     }
 }

@@ -3,6 +3,13 @@ import { EncryptedEnvelope } from '../crypto/EncryptedEnvelope.js';
 import { Operation } from '../core/Operation.js';
 import { KeyManager } from '../crypto/KeyManager.js';
 
+export const COVER_TRAFFIC_PROFILES = {
+    paranoid: { meanDelay: 500, label: 'Paranoid (~13GB/mo)' },
+    standard: { meanDelay: 2000, label: 'Standard (~2.7GB/mo)' },
+    mobile: { meanDelay: 10000, label: 'Mobile (~675MB/mo)' },
+    disabled: { meanDelay: 0, label: 'Disabled (No Privacy)' }
+};
+
 /**
  * SyncProtocol — Manages synchronization of encrypted CRDT state.
  *
@@ -19,12 +26,14 @@ export class SyncProtocol extends EventEmitter {
      * @param {import('./WebSocketTransport.js').WebSocketTransport} params.transport
      * @param {import('../crypto/KeyRotation.js').KeyRotation} params.keyRotation
      * @param {string} params.documentId
+     * @param {string} [params.coverTrafficProfile='standard']
      */
-    constructor({ transport, keyRotation, documentId }) {
+    constructor({ transport, keyRotation, documentId, coverTrafficProfile = 'standard' }) {
         super();
         this._transport = transport;
         this._keyRotation = keyRotation;
         this._documentId = documentId;
+        this._coverTrafficProfile = coverTrafficProfile;
         /** @type {Set<string>} */
         this._seenOps = new Set();
         /** @type {Array<object>} */
@@ -60,8 +69,13 @@ export class SyncProtocol extends EventEmitter {
             this._documentId,
             this._keyRotation.epoch,
         );
-
         this._realOpsBuffer.push(envelope);
+
+        const profile = COVER_TRAFFIC_PROFILES[this._coverTrafficProfile] || COVER_TRAFFIC_PROFILES.standard;
+        if (profile.meanDelay === 0 && !this._batchTimer) {
+            // Cover traffic disabled, act as a simple debouncer
+            this._batchTimer = setTimeout(() => this._tickCoverTraffic(), 25);
+        }
     }
 
     /**
@@ -177,17 +191,17 @@ export class SyncProtocol extends EventEmitter {
     }
 
     async _rejoinRoomSecurely() {
-        // Phase 4: Room Access Control requires authToken on join.
-        const key = this._keyRotation.currentKey;
-        const authToken = key ? await KeyManager.generateRoomAuthToken(this._documentId, key) : null;
+        // Trustless Relay Model: Room auth relies on E2EE.
 
         this._transport.send({
             action: 'join',
             roomId: this._documentId,
-            ...(authToken && { authToken })
         });
 
         this.requestSnapshot();
+
+        // Broadcast presence
+        this.broadcastAwareness();
     }
 
     /**
@@ -207,7 +221,11 @@ export class SyncProtocol extends EventEmitter {
     _startCoverTraffic() {
         if (this._coverTrafficActive) return;
         this._coverTrafficActive = true;
-        this._tickCoverTraffic();
+
+        const profile = COVER_TRAFFIC_PROFILES[this._coverTrafficProfile] || COVER_TRAFFIC_PROFILES.standard;
+        if (profile.meanDelay > 0) {
+            this._tickCoverTraffic();
+        }
     }
 
     /**
@@ -227,6 +245,8 @@ export class SyncProtocol extends EventEmitter {
     async _tickCoverTraffic() {
         if (!this._coverTrafficActive) return;
 
+        const profile = COVER_TRAFFIC_PROFILES[this._coverTrafficProfile] || COVER_TRAFFIC_PROFILES.standard;
+
         try {
             if (this._realOpsBuffer.length > 0) {
                 // Send all buffered real ops (batched)
@@ -238,8 +258,8 @@ export class SyncProtocol extends EventEmitter {
                     });
                 }
                 this._realOpsBuffer = [];
-            } else {
-                // Send an indistinguishable dummy packet if idle
+            } else if (profile.meanDelay > 0) {
+                // Send an indistinguishable dummy packet if idle AND not disabled
                 const key = this._keyRotation.currentKey;
                 if (key) {
                     const dummy = await EncryptedEnvelope.encryptDummy(
@@ -254,11 +274,17 @@ export class SyncProtocol extends EventEmitter {
                     });
                 }
             }
-        } catch (e) {
-            this.emit('error', e);
+        } catch (err) {
+            this.emit('error', err);
         }
 
-        const delay = -500 * Math.log(1 - Math.random());
-        this._batchTimer = setTimeout(() => this._tickCoverTraffic(), delay);
+        if (profile.meanDelay > 0) {
+            // Schedule next true exponential heartbeat
+            const delay = -profile.meanDelay * Math.log(1 - Math.random());
+            this._batchTimer = setTimeout(() => this._tickCoverTraffic(), delay);
+        } else {
+            // Disabled profile: don't loop
+            this._batchTimer = null;
+        }
     }
 }
